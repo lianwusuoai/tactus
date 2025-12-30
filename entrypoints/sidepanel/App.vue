@@ -257,7 +257,7 @@ function clearChat() {
     <!-- Header -->
     <div class="header">
       <h1>TC Chrome Agent</h1>
-      <button class="settings-btn" @click="openSettings">⚙️ Settings</button>
+      <button class="settings-btn" @click="openSettings">Settings</button>
     </div>
 
     <!-- Options bar -->
@@ -274,8 +274,8 @@ function clearChat() {
     <!-- Chat area -->
     <div class="chat-area" ref="chatAreaRef">
       <div v-if="!messages.length" class="empty-state">
-        <p>👋 Hi! Ask me anything.</p>
-        <p v-if="sharePageContent" style="font-size: 12px; margin-top: 8px;">
+        <p>Welcome. Ask me anything.</p>
+        <p v-if="sharePageContent" style="font-size: 12px; margin-top: 12px; color: var(--muted-foreground);">
           Page content will be shared with AI
         </p>
       </div>
@@ -346,8 +346,8 @@ function clearChat() {
                 <button class="btn btn-sm btn-danger" @click="removeProvider(p.id)">×</button>
               </div>
             </div>
-            <button class="btn btn-primary" style="width: 100%" @click="editingProvider = {} as any">
-              + Add Provider
+            <button class="btn btn-primary" style="width: 100%; margin-top: 8px;" @click="editingProvider = {} as any">
+              Add Provider
             </button>
           </div>
 
@@ -386,12 +386,12 @@ function clearChat() {
                 placeholder="Enter model name (e.g., gpt-4)"
               />
             </div>
-            <div style="display: flex; gap: 8px; margin-top: 16px;">
+            <div style="display: flex; gap: 12px; margin-top: 24px;">
               <button class="btn btn-secondary" @click="editingProvider = null; resetForm()">
                 Cancel
               </button>
               <button class="btn btn-primary" style="flex: 1" @click="saveCurrentProvider">
-                Save
+                Save Provider
               </button>
             </div>
           </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch, computed } from 'vue';
+import { ref, shallowRef, triggerRef, onMounted, nextTick, watch, computed } from 'vue';
 import { marked } from 'marked';
 import {
   providersStorage,
@@ -33,8 +33,8 @@ function renderMarkdown(content: string): string {
   return marked.parse(content) as string;
 }
 
-// State
-const messages = ref<ChatMessage[]>([]);
+// State - 使用 shallowRef 优化流式更新性能
+const messages = shallowRef<ChatMessage[]>([]);
 const inputText = ref('');
 const sharePageContent = ref(false);
 const pendingQuote = ref<string | null>(null);
@@ -193,6 +193,7 @@ async function sendMessage() {
   };
 
   messages.value.push(userMessage);
+  triggerRef(messages);
   inputText.value = '';
   pendingQuote.value = null;
   scrollToBottom();
@@ -213,9 +214,12 @@ async function sendMessage() {
       timestamp: Date.now(),
     };
     messages.value.push(assistantMessage);
+    triggerRef(messages);
 
     for await (const chunk of streamChat(provider, messages.value.slice(0, -1), pageContent)) {
       assistantMessage.content += chunk;
+      // 使用 triggerRef 手动触发更新，比重建数组性能更好
+      triggerRef(messages);
       scrollToBottom();
     }
     
@@ -227,6 +231,7 @@ async function sendMessage() {
       content: `错误: ${error.message}`,
       timestamp: Date.now(),
     });
+    triggerRef(messages);
   } finally {
     isLoading.value = false;
     scrollToBottom();

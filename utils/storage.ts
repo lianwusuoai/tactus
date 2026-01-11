@@ -17,10 +17,17 @@ export interface ChatMessage {
   quote?: string;
 }
 
+export interface ApiMessageRecord {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  toolName?: string;
+}
+
 export interface ChatSession {
   id: string;
   title: string;
   messages: ChatMessage[];
+  apiMessages?: ApiMessageRecord[]; // 持久化的 API 上下文
   createdAt: number;
   updatedAt: number;
   providerId?: string;

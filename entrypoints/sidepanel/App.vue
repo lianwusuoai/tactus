@@ -16,7 +16,9 @@ import {
   type ChatMessage,
   type ChatSession,
 } from '../../utils/storage';
-import { streamChat, getLastApiMessages } from '../../utils/api';
+import { streamChat, getLastApiMessages, setLastApiMessages, type ToolExecutor, type StreamEvent, type ApiMessage } from '../../utils/api';
+import { extractPageContent, truncateContent } from '../../utils/pageExtractor';
+import { removeToolCallMarkers, getToolStatusText, type ToolCall, type ToolResult } from '../../utils/tools';
 
 // Configure marked for safe rendering
 marked.setOptions({
@@ -38,6 +40,7 @@ const pendingQuote = ref<string | null>(null);
 const isLoading = ref(false);
 const showHistory = ref(false);
 const chatAreaRef = ref<HTMLElement | null>(null);
+const toolStatus = ref<string | null>(null); // 工具执行状态提示
 
 // Session state
 const currentSession = ref<ChatSession | null>(null);
@@ -50,7 +53,7 @@ const showModelSelector = ref(false);
 
 // Debug state
 const showDebugModal = ref(false);
-const debugApiMessages = ref<{ role: string; content: string }[]>([]);
+const debugApiMessages = ref<ApiMessage[]>([]);
 
 // Computed
 const activeProvider = computed(() => {
@@ -150,33 +153,75 @@ const scrollToBottom = () => {
   });
 };
 
-// Get page content from active tab
-async function getPageContent(): Promise<string | undefined> {
-  if (!sharePageContent.value) return undefined;
-  
+// 使用 Readability + Turndown 提取清洗后的页面内容
+async function extractCleanPageContent(): Promise<string> {
   try {
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-    if (!tab.id) return undefined;
+    if (!tab.id || !tab.url) {
+      return '无法获取当前页面信息';
+    }
 
     const results = await browser.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
-        const article = document.querySelector('article');
-        const main = document.querySelector('main');
-        const body = document.body;
-        const target = article || main || body;
-        let text = target.innerText || target.textContent || '';
-        text = text.replace(/\s+/g, ' ').trim();
-        return text.length > 15000 ? text.substring(0, 15000) + '...' : text;
+        // 返回完整的 HTML 和 URL
+        return {
+          html: document.documentElement.outerHTML,
+          url: window.location.href,
+          title: document.title,
+        };
       },
     });
 
-    return results[0]?.result;
+    const pageData = results[0]?.result;
+    if (!pageData) {
+      return '无法获取页面内容';
+    }
+
+    // 在这里解析 HTML（sidepanel 环境中）
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(pageData.html, 'text/html');
+    
+    const extracted = extractPageContent(doc, pageData.url);
+    const content = truncateContent(extracted.content);
+    
+    // 始终包含元数据
+    const metadata = [
+      `# ${extracted.title}`,
+      extracted.byline ? `作者: ${extracted.byline}` : '',
+      extracted.siteName ? `来源: ${extracted.siteName}` : '',
+      `URL: ${extracted.url}`,
+      '',
+      '---',
+      '',
+      content,
+    ].filter(Boolean).join('\n');
+    return metadata;
   } catch (e) {
-    console.error('Failed to get page content:', e);
-    return undefined;
+    console.error('Failed to extract page content:', e);
+    return `提取页面内容失败: ${e instanceof Error ? e.message : '未知错误'}`;
   }
 }
+
+// 工具执行器
+const toolExecutor: ToolExecutor = async (toolCall: ToolCall): Promise<ToolResult> => {
+  switch (toolCall.name) {
+    case 'extract_page_content': {
+      const content = await extractCleanPageContent();
+      return {
+        name: toolCall.name,
+        result: content,
+        success: true,
+      };
+    }
+    default:
+      return {
+        name: toolCall.name,
+        result: `未知工具: ${toolCall.name}`,
+        success: false,
+      };
+  }
+};
 
 // Save current session
 async function saveCurrentSession() {
@@ -184,6 +229,7 @@ async function saveCurrentSession() {
   const sessionToSave: ChatSession = {
     ...currentSession.value,
     messages: JSON.parse(JSON.stringify(messages.value)),
+    apiMessages: JSON.parse(JSON.stringify(getLastApiMessages())), // 持久化 API 上下文
   };
   await updateSession(sessionToSave);
   sessions.value = await getAllSessions();
@@ -224,10 +270,9 @@ async function sendMessage() {
   }
 
   isLoading.value = true;
+  toolStatus.value = null;
 
   try {
-    const pageContent = await getPageContent();
-    
     const assistantMessage: ChatMessage = {
       role: 'assistant',
       content: '',
@@ -236,10 +281,43 @@ async function sendMessage() {
     messages.value.push(assistantMessage);
     triggerRef(messages);
 
-    for await (const chunk of streamChat(provider, messages.value.slice(0, -1), pageContent)) {
-      assistantMessage.content += chunk;
-      triggerRef(messages);
-      scrollToBottom();
+    // 使用 ReAct 范式的流式聊天
+    const reactConfig = {
+      enableTools: true, // 默认启用工具
+      toolExecutor,
+      maxIterations: 3,
+    };
+
+    for await (const event of streamChat(provider, messages.value.slice(0, -1), { sharePageContent: sharePageContent.value }, reactConfig)) {
+      switch (event.type) {
+        case 'content':
+          isLoading.value = false; // 收到内容后关闭 loading 状态
+          assistantMessage.content += event.content;
+          triggerRef(messages);
+          scrollToBottom();
+          break;
+        case 'tool_call':
+          isLoading.value = true; // 工具调用时显示 loading
+          toolStatus.value = getToolStatusText(event.toolCall.name);
+          break;
+        case 'thinking':
+          toolStatus.value = event.message;
+          break;
+        case 'tool_result':
+          // 工具执行完成，清除状态并清理工具调用标记
+          toolStatus.value = null;
+          assistantMessage.content = removeToolCallMarkers(assistantMessage.content);
+          if (assistantMessage.content && !assistantMessage.content.endsWith('\n')) {
+            assistantMessage.content += '\n';
+          }
+          triggerRef(messages);
+          break;
+        case 'done':
+          toolStatus.value = null;
+          // 最终清理工具调用标记
+          assistantMessage.content = removeToolCallMarkers(assistantMessage.content).trim();
+          break;
+      }
     }
     
     assistantMessage.timestamp = Date.now();
@@ -252,6 +330,7 @@ async function sendMessage() {
     triggerRef(messages);
   } finally {
     isLoading.value = false;
+    toolStatus.value = null;
     scrollToBottom();
     await saveCurrentSession();
   }
@@ -290,6 +369,7 @@ watch(inputText, () => {
 async function newChat() {
   currentSession.value = null;
   messages.value = [];
+  setLastApiMessages([]); // 清空 API 上下文
   showHistory.value = false;
 }
 
@@ -297,6 +377,12 @@ async function newChat() {
 async function loadSession(session: ChatSession) {
   currentSession.value = session;
   messages.value = session.messages;
+  // 恢复 API 上下文
+  if (session.apiMessages) {
+    setLastApiMessages(session.apiMessages);
+  } else {
+    setLastApiMessages([]);
+  }
   await currentSessionIdStorage.setValue(session.id);
   showHistory.value = false;
   scrollToBottom();
@@ -347,7 +433,12 @@ async function selectProviderModel(providerId: string, model: string) {
 
 // 查看调试信息
 function viewDebugMessages() {
-  debugApiMessages.value = getLastApiMessages();
+  // 优先从当前会话获取持久化的 API 上下文，否则从内存获取
+  if (currentSession.value?.apiMessages?.length) {
+    debugApiMessages.value = currentSession.value.apiMessages;
+  } else {
+    debugApiMessages.value = getLastApiMessages();
+  }
   showDebugModal.value = true;
 }
 
@@ -423,7 +514,8 @@ function copyDebugMessages() {
           <span></span>
           <span></span>
         </div>
-        思考中...
+        <span v-if="toolStatus">{{ toolStatus }}</span>
+        <span v-else>思考中...</span>
       </div>
     </div>
 
@@ -550,7 +642,12 @@ function copyDebugMessages() {
               class="debug-message"
               :class="msg.role"
             >
-              <div class="debug-role">{{ msg.role }}</div>
+              <div class="debug-role">
+                <template v-if="msg.role === 'tool'">
+                  🔧 tool{{ msg.toolName ? ` (${msg.toolName})` : '' }}
+                </template>
+                <template v-else>{{ msg.role }}</template>
+              </div>
               <pre class="debug-content">{{ msg.content }}</pre>
             </div>
           </div>

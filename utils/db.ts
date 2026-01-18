@@ -209,6 +209,23 @@ export async function getAllSessions(): Promise<ChatSession[]> {
     .reverse(); // 最新的在前
 }
 
+// 分页获取会话列表
+export async function getSessionsPaginated(
+  limit: number = 20,
+  offset: number = 0
+): Promise<{ sessions: ChatSession[]; hasMore: boolean }> {
+  const db = await getDB();
+  const allSessions = await db.getAllFromIndex('chatSessions', 'by-updatedAt');
+  const reversed = allSessions
+    .map(s => ({ ...s, messages: s.messages || [] }))
+    .reverse();
+  
+  const sessions = reversed.slice(offset, offset + limit);
+  const hasMore = offset + limit < reversed.length;
+  
+  return { sessions, hasMore };
+}
+
 export async function getSession(id: string): Promise<ChatSession | null> {
   const db = await getDB();
   const session = await db.get('chatSessions', id);

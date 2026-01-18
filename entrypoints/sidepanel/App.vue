@@ -15,6 +15,7 @@ import {
   setSharePageContent,
   setCurrentSessionId,
   getAllSessions,
+  getSessionsPaginated,
   createSession,
   updateSession,
   deleteSession,
@@ -53,6 +54,10 @@ const toolStatus = ref<string | null>(null); // 工具执行状态提示
 // Session state
 const currentSession = ref<ChatSession | null>(null);
 const sessions = ref<ChatSession[]>([]);
+const sessionsHasMore = ref(true);
+const sessionsLoading = ref(false);
+const sessionsOffset = ref(0);
+const SESSIONS_PAGE_SIZE = 15;
 
 // Provider state
 const providers = ref<AIProvider[]>([]);
@@ -111,15 +116,13 @@ function formatTime(timestamp: number): string {
 
 function formatSessionDate(timestamp: number): string {
   const date = new Date(timestamp);
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const isYesterday = date.toDateString() === yesterday.toDateString();
-  
-  if (isToday) return '今天';
-  if (isYesterday) return '昨天';
-  return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString('zh-CN', { 
+    year: 'numeric', 
+    month: '2-digit', 
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }
 
 // Initialize
@@ -131,7 +134,6 @@ onMounted(async () => {
   const activeProvider = await getActiveProvider();
   activeProviderId.value = activeProvider?.id || null;
   sharePageContent.value = await getSharePageContent();
-  sessions.value = await getAllSessions();
   
   // 加载已安装的 Skills
   installedSkills.value = await getAllSkills();
@@ -351,7 +353,43 @@ async function saveCurrentSession() {
     apiMessages: JSON.parse(JSON.stringify(getLastApiMessages())), // 持久化 API 上下文
   };
   await updateSession(sessionToSave);
-  sessions.value = await getAllSessions();
+  // 刷新当前已加载的会话列表
+  await loadInitialSessions();
+}
+
+// 加载初始会话列表
+async function loadInitialSessions() {
+  sessionsOffset.value = 0;
+  const result = await getSessionsPaginated(SESSIONS_PAGE_SIZE, 0);
+  sessions.value = result.sessions;
+  sessionsHasMore.value = result.hasMore;
+  sessionsOffset.value = result.sessions.length;
+}
+
+// 加载更多会话
+async function loadMoreSessions() {
+  if (sessionsLoading.value || !sessionsHasMore.value) return;
+  
+  sessionsLoading.value = true;
+  try {
+    const result = await getSessionsPaginated(SESSIONS_PAGE_SIZE, sessionsOffset.value);
+    sessions.value = [...sessions.value, ...result.sessions];
+    sessionsHasMore.value = result.hasMore;
+    sessionsOffset.value += result.sessions.length;
+  } finally {
+    sessionsLoading.value = false;
+  }
+}
+
+// 历史列表滚动处理
+const sessionListRef = ref<HTMLElement | null>(null);
+
+function handleSessionListScroll(e: Event) {
+  const el = e.target as HTMLElement;
+  const threshold = 50;
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < threshold) {
+    loadMoreSessions();
+  }
 }
 
 // Send message
@@ -368,7 +406,7 @@ async function sendMessage() {
 
   if (!currentSession.value) {
     currentSession.value = await createSession(activeProviderId.value || undefined);
-    sessions.value = await getAllSessions();
+    await loadInitialSessions();
   }
 
   const userMessage: ChatMessage = {
@@ -442,7 +480,7 @@ async function sendMessage() {
           isLoading.value = false; // 收到内容后关闭 loading 状态
           assistantMessage.content += event.content;
           triggerRef(messages);
-          scrollToBottom();
+          // 不自动滚动，让用户自行控制查看位置
           break;
         case 'tool_call':
           isLoading.value = true; // 工具调用时显示 loading
@@ -478,7 +516,7 @@ async function sendMessage() {
   } finally {
     isLoading.value = false;
     toolStatus.value = null;
-    scrollToBottom();
+    // 不自动滚动，让用户自行控制查看位置
     await saveCurrentSession();
   }
 }
@@ -518,6 +556,12 @@ async function newChat() {
   messages.value = [];
   setLastApiMessages([]); // 清空 API 上下文
   showHistory.value = false;
+}
+
+// Open history modal
+async function openHistory() {
+  await loadInitialSessions();
+  showHistory.value = true;
 }
 
 // Load session
@@ -658,7 +702,7 @@ function rejectScript() {
             <path d="M12 5v14M5 12h14"/>
           </svg>
         </button>
-        <button class="icon-btn" @click="showHistory = true" title="历史对话">
+        <button class="icon-btn" @click="openHistory" title="历史对话">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
@@ -782,7 +826,7 @@ function rejectScript() {
           <div v-if="sessions.length === 0" class="empty-history">
             暂无历史对话
           </div>
-          <div v-else class="session-list">
+          <div v-else class="session-list" ref="sessionListRef" @scroll="handleSessionListScroll">
             <div
               v-for="session in sessions"
               :key="session.id"
@@ -802,6 +846,13 @@ function rejectScript() {
                   <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
                 </svg>
               </button>
+            </div>
+            <!-- 加载更多提示 -->
+            <div v-if="sessionsLoading" class="session-loading">
+              <span>加载中...</span>
+            </div>
+            <div v-else-if="!sessionsHasMore && sessions.length > 0" class="session-end">
+              <span>没有更多了</span>
             </div>
           </div>
         </div>

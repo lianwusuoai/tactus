@@ -159,6 +159,9 @@ onMounted(async () => {
     activeProviderId.value = newId;
   });
 
+  // 监听 skills 变更消息
+  browser.runtime.onMessage.addListener(handleSkillsChanged);
+
   // Check for pending quote from content script
   const result = await browser.storage.local.get('pendingQuote');
   if (result.pendingQuote) {
@@ -175,10 +178,21 @@ onMounted(async () => {
   });
 });
 
+// Skills 变更消息处理
+function handleSkillsChanged(message: any) {
+  if (message?.type === 'SKILLS_CHANGED') {
+    getAllSkills().then(skills => {
+      installedSkills.value = skills;
+    });
+  }
+}
+
 // 清理 watchers
 onUnmounted(() => {
   unwatchProviders.value?.();
   unwatchActiveProviderId.value?.();
+  // 移除 skills 变更监听
+  browser.runtime.onMessage.removeListener(handleSkillsChanged);
   // 清理调试面板刷新定时器
   if (debugRefreshTimer) {
     clearInterval(debugRefreshTimer);

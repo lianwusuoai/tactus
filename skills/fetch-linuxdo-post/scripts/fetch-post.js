@@ -104,14 +104,70 @@ async function fetchPostJson(topicId) {
 }
 
 /**
- * 获取帖子 raw 内容
+ * 获取帖子 raw 内容（支持分页）
+ * 每页固定 100 条，持续请求直到返回空内容
  */
 async function fetchRawContent(topicId) {
-  const url = `https://linux.do/raw/${topicId}`;
+  const PAGE_SIZE = 100;
+  let allContent = '';
+  let page = 1;
   
-  const response = await fetchWithRetry(url, { headers });
+  while (true) {
+    const url = page === 1 
+      ? `https://linux.do/raw/${topicId}`
+      : `https://linux.do/raw/${topicId}?page=${page}`;
+    
+    console.log(`[fetch-post] 获取 raw 第 ${page} 页:`, url);
+    
+    const response = await fetchWithRetry(url, { headers });
+    const pageContent = await response.text();
+    
+    // 如果返回空内容，说明没有更多了
+    if (!pageContent || pageContent.trim() === '') {
+      console.log(`[fetch-post] 第 ${page} 页为空，停止分页`);
+      break;
+    }
+    
+    // 拼接内容
+    allContent += (allContent ? '\n' : '') + pageContent;
+    
+    // 解析当前页帖子数量
+    const currentPosts = parseRawContent(pageContent);
+    console.log(`[fetch-post] 第 ${page} 页获取 ${currentPosts.length} 条帖子`);
+    
+    // 如果当前页不足 100 条，说明是最后一页
+    if (currentPosts.length < PAGE_SIZE) {
+      console.log(`[fetch-post] 当前页不足 ${PAGE_SIZE} 条，停止分页`);
+      break;
+    }
+    
+    // 分页请求延时 1 秒
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    page++;
+  }
   
-  return await response.text();
+  return allContent;
+}
+
+/**
+ * 构建原始楼层号到连续楼层号的映射
+ * @param {Array} posts 帖子数组（按原始楼层排序）
+ * @returns {Object} { oldToNew: {原始楼层 -> 新楼层}, newToOld: {新楼层 -> 原始楼层} }
+ */
+function buildPostNumberMapping(posts) {
+  const oldToNew = {};
+  const newToOld = {};
+  
+  // 按原始楼层排序
+  const sortedPosts = [...posts].sort((a, b) => a.postNumber - b.postNumber);
+  
+  sortedPosts.forEach((post, index) => {
+    const newNumber = index + 1;  // 新楼层从 1 开始
+    oldToNew[post.postNumber] = newNumber;
+    newToOld[newNumber] = post.postNumber;
+  });
+  
+  return { oldToNew, newToOld };
 }
 
 /**
@@ -119,20 +175,26 @@ async function fetchRawContent(topicId) {
  * 把有回复关系的评论聚合到同一个数组中
  */
 function aggregateToThreads(posts, replyMap) {
+  // 构建楼层号映射（原始 -> 连续）
+  const { oldToNew } = buildPostNumberMapping(posts);
+  
   // 为每个帖子添加回复信息（排除主帖）
+  // 注意：这里先用原始楼层号进行聚合
   const comments = posts
     .filter(post => post.postNumber > 1)
     .map(post => ({
       ...post,
+      originalPostNumber: post.postNumber,  // 保留原始楼层号用于聚合
       replyTo: replyMap[post.postNumber]?.replyTo || 1  // 默认回复主帖
     }));
   
   // 使用并查集思想，找到每个评论所属的讨论串根节点
-  const parent = {};  // postNumber -> 根节点 postNumber
+  // 使用原始楼层号进行聚合
+  const parent = {};  // originalPostNumber -> 根节点 originalPostNumber
   
   // 初始化：每个评论自己是根
   for (const comment of comments) {
-    parent[comment.postNumber] = comment.postNumber;
+    parent[comment.originalPostNumber] = comment.originalPostNumber;
   }
   
   // 查找根节点
@@ -148,7 +210,7 @@ function aggregateToThreads(posts, replyMap) {
   for (const comment of comments) {
     if (comment.replyTo > 1 && parent[comment.replyTo] !== undefined) {
       // 找到两者的根，合并到较小的楼层号
-      const rootA = findRoot(comment.postNumber);
+      const rootA = findRoot(comment.originalPostNumber);
       const rootB = findRoot(comment.replyTo);
       if (rootA !== rootB) {
         const minRoot = Math.min(rootA, rootB);
@@ -161,19 +223,34 @@ function aggregateToThreads(posts, replyMap) {
   // 按根节点分组
   const threadMap = {};
   for (const comment of comments) {
-    const root = findRoot(comment.postNumber);
+    const root = findRoot(comment.originalPostNumber);
     if (!threadMap[root]) {
       threadMap[root] = [];
     }
     threadMap[root].push(comment);
   }
   
-  // 转为数组，每个讨论串内按楼层排序
-  const threads = Object.values(threadMap).map(thread => 
-    thread.sort((a, b) => a.postNumber - b.postNumber)
-  );
+  // 转为数组，每个讨论串内按原始楼层排序，然后转换为连续楼层号
+  const threads = Object.values(threadMap).map(thread => {
+    // 先按原始楼层排序
+    thread.sort((a, b) => a.originalPostNumber - b.originalPostNumber);
+    
+    // 转换楼层号为连续编号，并将 replyTo 也转换
+    return thread.map(comment => {
+      const newPostNumber = oldToNew[comment.originalPostNumber];
+      const newReplyTo = comment.replyTo === 1 ? 1 : (oldToNew[comment.replyTo] || 1);
+      
+      return {
+        postNumber: newPostNumber,
+        author: comment.author,
+        content: comment.content,
+        createdAt: comment.createdAt,
+        replyTo: newReplyTo
+      };
+    });
+  });
   
-  // 讨论串按首条评论楼层排序
+  // 讨论串按首条评论的新楼层排序
   threads.sort((a, b) => a[0].postNumber - b[0].postNumber);
   
   return threads;
@@ -236,10 +313,13 @@ try {
     return result;
   } else {
     // 无 JSON 数据：返回原始评论列表
+    // 构建楼层号映射（原始 -> 连续）
+    const { oldToNew } = buildPostNumberMapping(posts);
+    
     const comments = posts
       .filter(p => p.postNumber > 1)
       .map(p => ({
-        postNumber: p.postNumber,
+        postNumber: oldToNew[p.postNumber],
         author: p.author,
         content: p.content,
         createdAt: p.createdAt

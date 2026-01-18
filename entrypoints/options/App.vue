@@ -198,6 +198,8 @@ async function handleFolderImport(event: Event) {
       if (result.skill) selectedSkillId.value = result.skill.id;
       if (result.warnings) importWarnings.value = result.warnings;
       if (!result.warnings?.length) closeImportModal();
+      // 通知其他页面 skills 已更新
+      browser.runtime.sendMessage({ type: 'SKILLS_CHANGED', action: 'added' });
     } else {
       importError.value = result.error || '导入失败';
     }
@@ -214,6 +216,8 @@ async function removeSkill(id: string) {
     await deleteSkill(id);
     await loadSkills();
     if (selectedSkillId.value === id) selectedSkillId.value = skills.value[0]?.id || null;
+    // 通知其他页面 skills 已更新
+    browser.runtime.sendMessage({ type: 'SKILLS_CHANGED', action: 'deleted' });
   }
 }
 

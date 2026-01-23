@@ -3,14 +3,14 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
   manifest: {
-    name: 'TC Chrome Agent',
+    name: 'Tactus',
     description: 'AI Assistant with OpenAI-compatible API support',
     version: '1.0.0',
     minimum_chrome_version: '120',
     permissions: ['storage', 'unlimitedStorage', 'activeTab', 'sidePanel', 'scripting'],
     host_permissions: ['<all_urls>'],
     action: {
-      default_title: 'TC Chrome Agent',
+      default_title: 'Tactus',
       default_icon: {
         16: '/icon/16.png',
         32: '/icon/32.png',

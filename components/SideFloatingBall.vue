@@ -96,9 +96,9 @@ onUnmounted(() => {
     @click="handleClick"
   >
     <div class="ball-inner">
-      <img :src="props.iconUrl" alt="AI 助手" width="28" height="28" />
+      <img :src="props.iconUrl" alt="Tactus" width="28" height="28" />
     </div>
-    <div class="ball-tooltip">AI 助手</div>
+    <div class="ball-tooltip">Tactus</div>
   </div>
 </template>
 

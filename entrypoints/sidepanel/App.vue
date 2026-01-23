@@ -780,7 +780,7 @@ function rejectScript() {
   <div class="container">
     <!-- Header -->
     <div class="header">
-      <h1>TC Chrome Agent</h1>
+      <h1>Tactus</h1>
       <div class="header-actions">
         <button class="icon-btn" @click="viewDebugMessages" title="查看 API 上下文">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

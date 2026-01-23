@@ -1,5 +1,5 @@
 {
-  "name": "tc-chrome-agent",
+  "name": "tactus",
   "description": "AI Assistant with OpenAI-compatible API support",
   "private": true,
   "version": "1.0.0",

@@ -1,181 +1,182 @@
-# Tactus
+English | [简体中文](README_ch.md)
 
-**首个支持 Agent Skills 的浏览器 AI 助手扩展**
+# ![icon](public/icon/32.png) Tactus
 
-Tactus 是一款创新的浏览器扩展，将 [Agent Skills](https://agentskills.io/specification) 规范引入浏览器环境，让 AI 助手能够通过可扩展的技能系统执行复杂任务。
+**The First Browser AI Assistant Extension with Agent Skills Support**
 
-<!-- 演示动图占位符 -->
-![Tactus 演示](resources/trust-skill.png)
-![Tactus 演示](resources/show-result.png)
+Tactus is an innovative browser extension that brings the [Agent Skills](https://agentskills.io/specification) specification to the browser environment, enabling AI assistants to perform complex tasks through an extensible skill system.
 
-## ✨ 核心特性
+<!-- Demo GIF placeholder -->
+![Tactus Demo](resources/trust-skill.png)
+![Tactus Demo](resources/show-result.png)
 
-### 🧩 Agent Skills 系统
+## ✨ Core Features
 
-Tactus 是首个在浏览器扩展中实现 Agent Skills 规范的产品：
+### 🧩 Agent Skills System
 
-- **技能导入** - 支持导入符合规范的 Skill 文件夹，包含指令、脚本和资源文件
-- **脚本执行** - 在页面中安全执行 JavaScript 脚本   
-- **信任机制** - 首次执行脚本需用户确认，可选择永久信任
+Tactus is the first product to implement the Agent Skills specification in a browser extension:
 
-<!-- Skills 导入演示占位符 -->
-![Skills 导入演示](resources/add-skill.png)
+- **Skill Import** - Import spec-compliant Skill folders containing instructions, scripts, and resource files
+- **Script Execution** - Safely execute JavaScript scripts within pages
+- **Trust Mechanism** - First-time script execution requires user confirmation, with option to permanently trust
 
-### 🤖 智能对话
+<!-- Skills Import Demo placeholder -->
+![Skills Import Demo](resources/add-skill.png)
 
-- **OpenAI 兼容 API** - 支持 OpenAI 兼容的 API 服务商
-- **多模型切换** - 配置多个服务商，随时切换模型
-- **流式响应** - 实时显示 AI 回复，支持思维链展示
-- **ReAct 范式** - 内置工具调用循环，AI 可自主决策使用工具
+### 🤖 Intelligent Conversation
 
-### 📄 页面理解
+- **OpenAI Compatible API** - Supports OpenAI-compatible API providers
+- **Multi-Model Switching** - Configure multiple providers and switch models anytime
+- **Streaming Response** - Real-time AI replies with chain-of-thought display
+- **ReAct Paradigm** - Built-in tool calling loop, AI autonomously decides when to use tools
 
-- **智能提取** - 使用 Readability + Turndown 提取页面核心内容并转换为 Markdown
-- **选中引用** - 选中页面文字后一键引用提问带上
-- **上下文感知** - AI自行判断是否调用网页提取工具，如果 skill 脚本有提供则不会
+### 📄 Page Understanding
 
-<!-- 页面交互演示占位符 -->
-![页面交互演示](resources/page-interaction.png)
+- **Smart Extraction** - Uses Readability + Turndown to extract core page content and convert to Markdown
+- **Selection Quote** - Select text on page and quote it with one click
+- **Context Awareness** - AI determines whether to call page extraction tool; skips if skill script provides it
 
-### 💾 本地存储
+<!-- Page Interaction Demo placeholder -->
+![Page Interaction Demo](resources/page-interaction.png)
 
-- **会话管理** - 对话历史本地存储，支持分页加载
-- **IndexedDB** - Skills 和文件存储在本地数据库
-- **隐私优先** - 所有数据保存在本地，不上传任何服务器
+### 💾 Local Storage
 
-## 🚀 快速开始
+- **Session Management** - Conversation history stored locally with pagination support
+- **IndexedDB** - Skills and files stored in local database
+- **Privacy First** - All data saved locally, nothing uploaded to any server
 
-### 1. 下载
-从官方 Github [发布页面](https://github.com/Castor6/tactus/releases) 下载最新的 `tactus.zip` 文件。
+## 🚀 Quick Start
 
-### 2. 安装
-- 在固定目录解压 `tactus.zip` 。
-- 在 Chrome 中打开 `chrome://extensions/`
-- 启用 `开发者模式`（右上角）
-- 点击 `加载未打包的扩展程序` （左上角）
-- 选择已解压的 `tactus` 文件夹。
+### 1. Download
+Download the latest `tactus.zip` file from the official GitHub [Releases page](https://github.com/Castor6/tactus/releases).
 
-## 🛠️ 从源代码构建
+### 2. Install
+- Extract `tactus.zip` to a permanent directory
+- Open `chrome://extensions/` in Chrome
+- Enable `Developer mode` (top right)
+- Click `Load unpacked` (top left)
+- Select the extracted `tactus` folder
 
-1. 克隆仓库
+## 🛠️ Build from Source
+
+1. Clone the repository
 ```bash
 git clone https://github.com/Castor6/tactus.git
 cd tactus
 ```
 
-2. 安装依赖
+2. Install dependencies
 ```bash
 npm install
 ```
 
-3. 开发模式运行
+3. Run in development mode
 ```bash
 npm run dev
 ```
 
-4. 构建生产版本
+4. Build for production
 ```bash
 npm run build
 ```
 
-## 📖 使用指南
+## 📖 User Guide
 
-### 配置 AI 服务商
+### Configure AI Provider
 
-1. 点击扩展图标打开侧边栏
-2. 点击设置按钮进入配置页面
-3. 添加 API 服务商（填写名称、API 地址、密钥）
-4. 获取模型列表并选择默认模型
+1. Click the extension icon to open the sidebar
+2. Click the settings button to enter configuration page
+3. Add API provider (fill in name, API URL, key)
+4. Fetch model list and select a model
 
-<!-- 配置演示占位符 -->
-![配置演示](resources/set-llm.png)
+<!-- Configuration Demo placeholder -->
+![Configuration Demo](resources/set-llm.png)
 
-### 导入 Skill
+### Import Skill
 
-1. 在设置页面找到 Skills 管理区域
-2. 点击"导入 Skill"按钮
-3. 选择包含 `SKILL.md` 的文件夹
-4. 确认导入后即可在对话中使用
+1. Find the Skills management area in settings page
+2. Click "Import Skill" button
+3. Select a folder containing `SKILL.md`
+4. Confirm import and use it in conversations
 
-### Skill 文件夹结构
+### Skill Folder Structure
 
 ```
 my-skill/
-├── SKILL.md          # 必需：技能定义和指令
-├── scripts/          # 可选：可执行脚本
+├── SKILL.md          # Required: Skill definition and instructions
+├── scripts/          # Optional: Executable scripts
 │   └── fetch-data.js
-├── references/       # 可选：参考文档
+├── references/       # Optional: Reference documents
 │   └── api-docs.md
-└── assets/           # 可选：资源文件
+└── assets/           # Optional: Resource files
     └── template.json
 ```
 
-### SKILL.md 格式
+### SKILL.md Format
 
 ```markdown
 ---
 name: my-skill
-description: 这是一个示例技能
+description: This is an example skill
 ---
 
-# 技能指令
+# Skill Instructions
 
-当用户需要执行某任务时，按以下步骤操作：
+When user needs to perform a task, follow these steps:
 
-1. 首先分析用户需求
-2. 调用 scripts/fetch-data.js 获取数据
-3. 整理并返回结果
+1. First analyze user requirements
+2. Call scripts/fetch-data.js to fetch data
+3. Organize and return results
 ```
 
-## 🛠️ 技术栈
+## 🛠️ Tech Stack
 
-- **框架**: [WXT](https://wxt.dev/) - 现代浏览器扩展开发框架
-- **前端**: Vue 3 + TypeScript
-- **AI 集成**: OpenAI SDK（兼容任意 OpenAI API）
-- **内容提取**: @mozilla/readability + turndown
-- **存储**: IndexedDB (idb) + WXT Storage
-- **Markdown**: marked
+- **Framework**: [WXT](https://wxt.dev/) - Modern browser extension development framework
+- **Frontend**: Vue 3 + TypeScript
+- **AI Integration**: OpenAI SDK (compatible with any OpenAI API)
+- **Content Extraction**: @mozilla/readability + turndown
+- **Storage**: IndexedDB (idb) + WXT Storage
 
-## 🔧 内置工具
+## 🔧 Built-in Tools
 
-Tactus 为 AI 提供以下内置工具：
+Tactus provides the following built-in tools for AI:
 
-| 工具 | 描述 |
-|------|------|
-| `extract_page_content` | 提取当前页面的主要内容 |
-| `activate_skill` | 激活指定的 Skill |
-| `execute_skill_script` | 执行 Skill 中的脚本 |
-| `read_skill_file` | 读取 Skill 中的文件内容 |
+| Tool | Description |
+|------|-------------|
+| `extract_page_content` | Extract main content from current page |
+| `activate_skill` | Activate a specified Skill |
+| `execute_skill_script` | Execute script within a Skill |
+| `read_skill_file` | Read file content from a Skill |
 
-## 📝 开发
+## 📝 Development
 
-### 项目结构
+### Project Structure
 
 ```
 tactus/
 ├── entrypoints/
-│   ├── background.ts      # 后台脚本
-│   ├── content.ts         # 内容脚本
-│   ├── sidepanel/         # 侧边栏 UI
-│   └── options/           # 设置页面
-├── components/            # Vue 组件
+│   ├── background.ts      # Background script
+│   ├── content.ts         # Content script
+│   ├── sidepanel/         # Sidebar UI
+│   └── options/           # Settings page
+├── components/            # Vue components
 ├── utils/
-│   ├── api.ts             # API 调用
-│   ├── db.ts              # IndexedDB 操作
-│   ├── skills.ts          # Skills 核心逻辑
-│   ├── skillsExecutor.ts  # 脚本执行器
-│   └── skillsImporter.ts  # Skills 导入
-└── public/                # 静态资源
+│   ├── api.ts             # API calls
+│   ├── db.ts              # IndexedDB operations
+│   ├── skills.ts          # Skills core logic
+│   ├── skillsExecutor.ts  # Script executor
+│   └── skillsImporter.ts  # Skills import
+└── public/                # Static assets
 ```
 
-## 🤝 贡献
+## 🤝 Contributing
 
-欢迎提交 Issue 和 Pull Request！
+Issues and Pull Requests are welcome!
 
-## 📄 许可证
+## 📄 License
 
 Apache-2.0 License
 
 ---
 
-**Tactus** - 让浏览器 AI 助手拥有无限可能 🚀
+**Tactus** - Empowering Browser AI Assistants with Unlimited Possibilities 🚀

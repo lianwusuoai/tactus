@@ -1691,6 +1691,8 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
 /* ========== Theme Selector ========== */
 .theme-selector-wrapper {
   position: relative;
@@ -1744,3 +1746,4 @@ body {
   inset: 0;
   z-index: 999;
 }
+

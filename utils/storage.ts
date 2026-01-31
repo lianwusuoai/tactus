@@ -135,6 +135,50 @@ export function watchSelectionQuoteEnabled(callback: (enabled: boolean) => void)
   });
 }
 
+// ==================== Raw Extract Sites Settings ====================
+
+const rawExtractSitesStorage = storage.defineItem<string[]>('local:rawExtractSites', {
+  fallback: [],
+});
+
+export async function getRawExtractSites(): Promise<string[]> {
+  return await rawExtractSitesStorage.getValue();
+}
+
+export async function setRawExtractSites(sites: string[]): Promise<void> {
+  await rawExtractSitesStorage.setValue(sites);
+}
+
+export async function addRawExtractSite(site: string): Promise<void> {
+  const sites = await rawExtractSitesStorage.getValue();
+  const normalized = site.toLowerCase().trim();
+  if (normalized && !sites.includes(normalized)) {
+    sites.push(normalized);
+    await rawExtractSitesStorage.setValue(sites);
+  }
+}
+
+export async function removeRawExtractSite(site: string): Promise<void> {
+  const sites = await rawExtractSitesStorage.getValue();
+  await rawExtractSitesStorage.setValue(sites.filter(s => s !== site));
+}
+
+export function watchRawExtractSites(callback: (sites: string[]) => void): () => void {
+  return rawExtractSitesStorage.watch((newValue) => {
+    callback(newValue);
+  });
+}
+
+// 检查 URL 是否匹配原始提取网站列表
+export function isRawExtractSite(url: string, sites: string[]): boolean {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return sites.some(site => hostname.includes(site));
+  } catch {
+    return false;
+  }
+}
+
 // 检测浏览器语言并返回匹配的语言设置
 export function detectBrowserLanguage(): Language {
   const browserLang = navigator.language || (navigator as any).userLanguage || 'en';

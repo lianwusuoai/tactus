@@ -15,6 +15,8 @@ import {
   watchThemeMode,
   applyTheme,
   getResolvedTheme,
+  getRawExtractSites,
+  isRawExtractSite,
   type AIProvider,
   type Language,
   type ThemeMode,
@@ -620,7 +622,11 @@ async function extractCleanPageContent(): Promise<string> {
     const parser = new DOMParser();
     const doc = parser.parseFromString(pageData.html, 'text/html');
     
-    const extracted = extractPageContent(doc, pageData.url);
+    // 检查是否需要使用原始提取
+    const rawExtractSites = await getRawExtractSites();
+    const useRawExtract = isRawExtractSite(pageData.url, rawExtractSites);
+    
+    const extracted = extractPageContent(doc, pageData.url, { useRawExtract });
     const content = truncateContent(extracted.content);
     
     // 始终包含元数据
@@ -818,11 +824,22 @@ function handleSessionListScroll(e: Event) {
 
 // Send message
 async function sendMessage() {
+  console.log('[sendMessage] called, time:', Date.now(), 'isLoading:', isLoading.value);
   const text = inputText.value.trim();
-  if (!text || isLoading.value || isEditing.value) return;
+  if (!text || isLoading.value || isEditing.value) {
+    console.log('[sendMessage] blocked - text:', !!text, 'isLoading:', isLoading.value, 'isEditing:', isEditing.value);
+    return;
+  }
+  
+  // 立即设置 loading 状态，防止重复调用
+  isLoading.value = true;
+  console.log('[sendMessage] passed check, set isLoading=true, time:', Date.now());
+  
+  toolStatus.value = null;
 
   const provider = await getActiveProvider();
   if (!provider) {
+    isLoading.value = false;
     alert(i18n('noModelConfig'));
     openSettings();
     return;
@@ -849,9 +866,6 @@ async function sendMessage() {
   if (messages.value.length === 1) {
     currentSession.value.title = await generateSessionTitle(text);
   }
-
-  isLoading.value = true;
-  toolStatus.value = null;
 
   try {
     const assistantMessage: ChatMessage = {
@@ -968,6 +982,7 @@ async function sendMessage() {
 
 // Handle Enter key
 function handleKeydown(e: KeyboardEvent) {
+  console.log('[handleKeydown]', e.key, 'repeat:', e.repeat, 'time:', Date.now());
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMessage();

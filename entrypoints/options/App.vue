@@ -14,6 +14,9 @@ import {
   setFloatingBallEnabled,
   getSelectionQuoteEnabled,
   setSelectionQuoteEnabled,
+  getRawExtractSites,
+  addRawExtractSite,
+  removeRawExtractSite,
   getThemeMode,
   watchThemeMode,
   applyTheme,
@@ -40,6 +43,10 @@ const floatingBallEnabled = ref(true);
 
 // 划词引用设置
 const selectionQuoteEnabled = ref(true);
+
+// 原始提取网站设置
+const rawExtractSites = ref<string[]>([]);
+const newRawExtractSite = ref('');
 
 // 主题监听
 const unwatchThemeMode = ref<(() => void) | null>(null);
@@ -95,6 +102,8 @@ onMounted(async () => {
   floatingBallEnabled.value = await getFloatingBallEnabled();
   // 加载划词引用设置
   selectionQuoteEnabled.value = await getSelectionQuoteEnabled();
+  // 加载原始提取网站设置
+  rawExtractSites.value = await getRawExtractSites();
   
   // 加载并应用主题
   const themeMode = await getThemeMode();
@@ -311,6 +320,21 @@ async function handleFloatingBallToggle(enabled: boolean) {
 async function handleSelectionQuoteToggle(enabled: boolean) {
   selectionQuoteEnabled.value = enabled;
   await setSelectionQuoteEnabled(enabled);
+}
+
+// 原始提取网站管理
+async function handleAddRawExtractSite() {
+  const site = newRawExtractSite.value.trim().toLowerCase();
+  if (site) {
+    await addRawExtractSite(site);
+    rawExtractSites.value = await getRawExtractSites();
+    newRawExtractSite.value = '';
+  }
+}
+
+async function handleRemoveRawExtractSite(site: string) {
+  await removeRawExtractSite(site);
+  rawExtractSites.value = await getRawExtractSites();
 }
 </script>
 
@@ -609,6 +633,47 @@ async function handleSelectionQuoteToggle(enabled: boolean) {
                     </span>
                     <span class="toggle-label">{{ selectionQuoteEnabled ? i18n('floatingBallEnabled') : i18n('floatingBallDisabled') }}</span>
                   </button>
+                </div>
+              </div>
+              
+              <div class="settings-divider"></div>
+              
+              <div class="settings-item settings-item-vertical">
+                <div class="settings-item-info">
+                  <div class="settings-item-label">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                      <path d="M14 2v6h6"/>
+                      <path d="M16 13H8M16 17H8M10 9H8"/>
+                    </svg>
+                    <span>{{ i18n('rawExtractSites') }}</span>
+                  </div>
+                  <p class="settings-item-desc">{{ i18n('rawExtractSitesDesc') }}</p>
+                </div>
+                <div class="settings-item-content">
+                  <div class="site-input-row">
+                    <input 
+                      v-model="newRawExtractSite"
+                      :placeholder="i18n('rawExtractSitesPlaceholder')"
+                      @keydown.enter="handleAddRawExtractSite"
+                      class="site-input"
+                    />
+                    <button class="btn btn-primary btn-sm" @click="handleAddRawExtractSite" :disabled="!newRawExtractSite.trim()">
+                      {{ i18n('addSite') }}
+                    </button>
+                  </div>
+                  <p class="settings-hint">{{ i18n('rawExtractSitesHint') }}</p>
+                  <div class="site-tags" v-if="rawExtractSites.length > 0">
+                    <span v-for="site in rawExtractSites" :key="site" class="site-tag">
+                      {{ site }}
+                      <button class="site-tag-remove" @click="handleRemoveRawExtractSite(site)" :title="i18n('delete')">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M18 6L6 18M6 6l12 12"/>
+                        </svg>
+                      </button>
+                    </span>
+                  </div>
+                  <div v-else class="no-sites">{{ i18n('noSitesConfigured') }}</div>
                 </div>
               </div>
             </div>

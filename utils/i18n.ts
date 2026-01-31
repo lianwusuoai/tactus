@@ -87,6 +87,14 @@ export interface Translations {
   selectionQuote: string;
   selectionQuoteDesc: string;
   
+  // 原始提取网站设置
+  rawExtractSites: string;
+  rawExtractSitesDesc: string;
+  rawExtractSitesPlaceholder: string;
+  rawExtractSitesHint: string;
+  addSite: string;
+  noSitesConfigured: string;
+  
   // Sidepanel
   newChat: string;
   history: string;
@@ -207,6 +215,14 @@ const en: Translations = {
   selectionQuote: 'Selection Quote',
   selectionQuoteDesc: 'Show quick action button when selecting text on pages',
   
+  // 原始提取网站设置
+  rawExtractSites: 'Raw Extract Sites',
+  rawExtractSitesDesc: 'Sites in this list will bypass Readability algorithm and extract raw page content directly',
+  rawExtractSitesPlaceholder: 'e.g. youtube.com',
+  rawExtractSitesHint: 'Enter domain keywords, e.g. "youtube" will match youtube.com',
+  addSite: 'Add',
+  noSitesConfigured: 'No sites configured',
+  
   // Sidepanel
   newChat: 'New Chat',
   history: 'History',
@@ -326,6 +342,14 @@ const zhCN: Translations = {
   floatingBallDisabled: '已禁用',
   selectionQuote: '划词引用',
   selectionQuoteDesc: '选中页面文字时显示快捷操作按钮',
+  
+  // 原始提取网站设置
+  rawExtractSites: '原始提取网站',
+  rawExtractSitesDesc: '列表中的网站将跳过 Readability 算法，直接提取页面原始内容',
+  rawExtractSitesPlaceholder: '例如：youtube.com',
+  rawExtractSitesHint: '输入域名关键词，如 "youtube" 将匹配 youtube.com',
+  addSite: '添加',
+  noSitesConfigured: '暂无配置',
   
   // Sidepanel
   newChat: '新建对话',

@@ -692,6 +692,11 @@ function useSidepanelSelectionQuote(): void {
 }
 
 function handleSidepanelSelectionMouseup(event: MouseEvent): void {
+  const target = event.target;
+  if (target instanceof Element && target.closest('.inline-selection-quote')) {
+    return;
+  }
+
   if (!selectionQuoteEnabled.value) {
     hideSelectionQuotePopup();
     return;
@@ -1880,7 +1885,7 @@ function rejectScript() {
       class="inline-selection-quote"
       :style="{ left: `${selectionQuotePopup.x}px`, top: `${selectionQuotePopup.y}px` }"
     >
-      <button class="inline-selection-btn" @click="useSidepanelSelectionQuote">
+      <button class="inline-selection-btn" @mousedown.stop @mouseup.stop @click="useSidepanelSelectionQuote">
         {{ i18n('quoteSelection') }}
       </button>
     </div>

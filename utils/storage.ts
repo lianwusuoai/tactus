@@ -15,6 +15,7 @@ export interface AIProvider {
   apiKey: string;
   models: string[];
   selectedModel: string;
+  visionModelSupport: Record<string, boolean>;
 }
 
 export interface TrustedScript {
@@ -169,6 +170,54 @@ export function watchRawExtractSites(callback: (sites: string[]) => void): () =>
   });
 }
 
+// ==================== Page Content Limit Settings ====================
+
+const maxPageContentLengthStorage = storage.defineItem<number>('local:maxPageContentLength', {
+  fallback: 30000,
+});
+
+function normalizePositiveInt(value: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  const normalized = Math.floor(value);
+  return normalized > 0 ? normalized : fallback;
+}
+
+export async function getMaxPageContentLength(): Promise<number> {
+  const value = await maxPageContentLengthStorage.getValue();
+  return normalizePositiveInt(value, 30000);
+}
+
+export async function setMaxPageContentLength(value: number): Promise<void> {
+  await maxPageContentLengthStorage.setValue(normalizePositiveInt(value, 30000));
+}
+
+export function watchMaxPageContentLength(callback: (value: number) => void): () => void {
+  return maxPageContentLengthStorage.watch((newValue) => {
+    callback(normalizePositiveInt(newValue, 30000));
+  });
+}
+
+// ==================== Tool Call Limit Settings ====================
+
+const maxToolCallsStorage = storage.defineItem<number>('local:maxToolCalls', {
+  fallback: 100,
+});
+
+export async function getMaxToolCalls(): Promise<number> {
+  const value = await maxToolCallsStorage.getValue();
+  return normalizePositiveInt(value, 100);
+}
+
+export async function setMaxToolCalls(value: number): Promise<void> {
+  await maxToolCallsStorage.setValue(normalizePositiveInt(value, 100));
+}
+
+export function watchMaxToolCalls(callback: (value: number) => void): () => void {
+  return maxToolCallsStorage.watch((newValue) => {
+    callback(normalizePositiveInt(newValue, 100));
+  });
+}
+
 // 检查 URL 是否匹配原始提取网站列表
 export function isRawExtractSite(url: string, sites: string[]): boolean {
   try {
@@ -199,7 +248,7 @@ export async function initializeLanguage(): Promise<void> {
 
 export function watchProviders(callback: (providers: AIProvider[]) => void): () => void {
   return providersStorage.watch((newValue) => {
-    callback(newValue);
+    callback(newValue.map(normalizeProvider));
   });
 }
 
@@ -212,21 +261,24 @@ export function watchActiveProviderId(callback: (id: string | null) => void): ()
 // ==================== Providers ====================
 
 export async function getAllProviders(): Promise<AIProvider[]> {
-  return await providersStorage.getValue();
+  const providers = await providersStorage.getValue();
+  return providers.map(normalizeProvider);
 }
 
 export async function getProvider(id: string): Promise<AIProvider | undefined> {
   const providers = await providersStorage.getValue();
-  return providers.find((p: AIProvider) => p.id === id);
+  const provider = providers.find((p: AIProvider) => p.id === id);
+  return provider ? normalizeProvider(provider) : undefined;
 }
 
 export async function saveProvider(provider: AIProvider): Promise<void> {
-  const providers = await providersStorage.getValue();
+  const providers = (await providersStorage.getValue()).map(normalizeProvider);
+  const normalizedProvider = normalizeProvider(provider);
   const index = providers.findIndex((p: AIProvider) => p.id === provider.id);
   if (index >= 0) {
-    providers[index] = provider;
+    providers[index] = normalizedProvider;
   } else {
-    providers.push(provider);
+    providers.push(normalizedProvider);
   }
   await providersStorage.setValue(providers);
 }
@@ -240,11 +292,76 @@ export async function getActiveProvider(): Promise<AIProvider | null> {
   const activeId = await activeProviderIdStorage.getValue();
   if (!activeId) return null;
   const provider = await getProvider(activeId);
-  return provider || null;
+  return provider ? normalizeProvider(provider) : null;
 }
 
 export async function setActiveProviderId(id: string | null): Promise<void> {
   await activeProviderIdStorage.setValue(id);
+}
+
+type LegacyProvider = Partial<AIProvider> & {
+  supportsVision?: boolean;
+  visionModelSupport?: Record<string, boolean> | undefined;
+};
+
+function normalizeModelList(models: unknown): string[] {
+  if (!Array.isArray(models)) return [];
+  return Array.from(
+    new Set(
+      models
+        .filter((model): model is string => typeof model === 'string')
+        .map(model => model.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function normalizeVisionModelSupport(
+  models: string[],
+  provider: LegacyProvider,
+): Record<string, boolean> {
+  const rawSupport = provider.visionModelSupport;
+  const supportMap: Record<string, boolean> =
+    rawSupport && typeof rawSupport === 'object' && !Array.isArray(rawSupport)
+      ? rawSupport
+      : {};
+  const legacySupportsVision = Boolean(provider.supportsVision);
+  const normalized: Record<string, boolean> = {};
+  for (const model of models) {
+    const value = supportMap[model];
+    normalized[model] = typeof value === 'boolean' ? value : legacySupportsVision;
+  }
+  return normalized;
+}
+
+function normalizeProvider(provider: AIProvider): AIProvider {
+  const legacyProvider = provider as LegacyProvider;
+  const models = normalizeModelList(legacyProvider.models);
+  const selectedModel =
+    typeof legacyProvider.selectedModel === 'string' && models.includes(legacyProvider.selectedModel)
+      ? legacyProvider.selectedModel
+      : models[0] || '';
+  const visionModelSupport = normalizeVisionModelSupport(models, legacyProvider);
+
+  return {
+    id: provider.id,
+    name: provider.name,
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey,
+    models,
+    selectedModel,
+    visionModelSupport,
+  };
+}
+
+export function isVisionSupportedForModel(
+  provider: AIProvider | null | undefined,
+  model?: string | null,
+): boolean {
+  if (!provider) return false;
+  const targetModel = model ?? provider.selectedModel;
+  if (!targetModel) return false;
+  return Boolean(provider.visionModelSupport?.[targetModel]);
 }
 
 // ==================== Trusted Scripts ====================

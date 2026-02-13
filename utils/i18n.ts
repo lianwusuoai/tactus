@@ -38,6 +38,11 @@ export interface Translations {
   customModelPlaceholder: string;
   add: string;
   addedModels: string;
+  supportsVision: string;
+  supportsVisionDesc: string;
+  modelVision: string;
+  modelVisionEnabled: string;
+  modelVisionDisabled: string;
   saveConfig: string;
   saving: string;
   noProviders: string;
@@ -86,6 +91,12 @@ export interface Translations {
   floatingBallDisabled: string;
   selectionQuote: string;
   selectionQuoteDesc: string;
+  pageContentLimit: string;
+  pageContentLimitDesc: string;
+  pageContentLimitHint: string;
+  toolCallLimit: string;
+  toolCallLimitDesc: string;
+  toolCallLimitHint: string;
   
   // 原始提取网站设置
   rawExtractSites: string;
@@ -101,9 +112,20 @@ export interface Translations {
   settings: string;
   sharePageContent: string;
   pageContentShared: string;
+  currentTab: string;
   welcomeMessage: string;
   inputPlaceholder: string;
   thinking: string;
+  quoteSelection: string;
+  stop: string;
+  uploadImage: string;
+  imageUploadHint: string;
+  dragImageHere: string;
+  imageTooLarge: string;
+  imageCountLimit: string;
+  imageOnlyFiles: string;
+  removeImage: string;
+  currentModelNoVision: string;
   noModelConfig: string;
   notConfigured: string;
   
@@ -166,6 +188,11 @@ const en: Translations = {
   customModelPlaceholder: 'Enter model name manually',
   add: 'Add',
   addedModels: 'Added Models',
+  supportsVision: 'Vision support',
+  supportsVisionDesc: 'Configure vision support for each model below. Only enabled models can upload images.',
+  modelVision: 'Vision',
+  modelVisionEnabled: 'Vision enabled',
+  modelVisionDisabled: 'Text only',
   saveConfig: 'Save Configuration',
   saving: 'Saving...',
   noProviders: 'No providers configured',
@@ -214,6 +241,12 @@ const en: Translations = {
   floatingBallDisabled: 'Disabled',
   selectionQuote: 'Selection Quote',
   selectionQuoteDesc: 'Show quick action button when selecting text on pages',
+  pageContentLimit: 'Max page content length',
+  pageContentLimitDesc: 'Maximum number of characters extracted from current page',
+  pageContentLimitHint: 'Used by page extraction tools to truncate long content',
+  toolCallLimit: 'Max tool calls',
+  toolCallLimitDesc: 'Maximum number of tool calls per request',
+  toolCallLimitHint: 'Stop tool loop once the limit is reached',
   
   // 原始提取网站设置
   rawExtractSites: 'Raw Extract Sites',
@@ -229,9 +262,20 @@ const en: Translations = {
   settings: 'Settings',
   sharePageContent: 'Share page content',
   pageContentShared: 'Page content will be shared with AI',
+  currentTab: 'Current tab',
   welcomeMessage: 'Welcome! How can I help you?',
   inputPlaceholder: 'Type your message...',
   thinking: 'Thinking...',
+  quoteSelection: 'Quote selection',
+  stop: 'Stop',
+  uploadImage: 'Upload image',
+  imageUploadHint: 'Drag image here or click upload',
+  dragImageHere: 'Drop image to attach',
+  imageTooLarge: 'Image is too large (max {sizeMB}MB)',
+  imageCountLimit: 'You can attach up to {count} images per message',
+  imageOnlyFiles: 'Only image files are supported',
+  removeImage: 'Remove image',
+  currentModelNoVision: 'The current model does not support vision. Please enable vision for this model in settings.',
   noModelConfig: 'Please configure an AI provider in settings first',
   notConfigured: 'Not configured',
   
@@ -294,6 +338,11 @@ const zhCN: Translations = {
   customModelPlaceholder: '手动输入模型名称',
   add: '添加',
   addedModels: '已添加的模型',
+  supportsVision: '视觉支持',
+  supportsVisionDesc: '请为下方每个模型单独配置视觉支持。只有开启视觉的模型才可上传图片。',
+  modelVision: '视觉',
+  modelVisionEnabled: '支持视觉',
+  modelVisionDisabled: '仅文本',
   saveConfig: '保存配置',
   saving: '保存中...',
   noProviders: '暂无服务商配置',
@@ -342,6 +391,12 @@ const zhCN: Translations = {
   floatingBallDisabled: '已禁用',
   selectionQuote: '划词引用',
   selectionQuoteDesc: '选中页面文字时显示快捷操作按钮',
+  pageContentLimit: '网页最大字数限制',
+  pageContentLimitDesc: '提取当前网页内容时的最大字符数',
+  pageContentLimitHint: '用于页面提取工具，超出后会自动截断',
+  toolCallLimit: '工具调用最大次数',
+  toolCallLimitDesc: '每次请求允许的工具调用上限',
+  toolCallLimitHint: '达到上限后将停止工具循环',
   
   // 原始提取网站设置
   rawExtractSites: '原始提取网站',
@@ -357,9 +412,20 @@ const zhCN: Translations = {
   settings: '设置',
   sharePageContent: '分享当前页面内容',
   pageContentShared: '页面内容将与 AI 共享',
+  currentTab: '当前标签页',
   welcomeMessage: '欢迎使用，有什么可以帮您？',
   inputPlaceholder: '输入您的消息...',
   thinking: '思考中...',
+  quoteSelection: '引用选中文本',
+  stop: '终止',
+  uploadImage: '上传图片',
+  imageUploadHint: '拖拽图片到此处，或点击上传',
+  dragImageHere: '松开以上传图片',
+  imageTooLarge: '图片过大（最大 {sizeMB}MB）',
+  imageCountLimit: '每条消息最多上传 {count} 张图片',
+  imageOnlyFiles: '仅支持图片文件',
+  removeImage: '移除图片',
+  currentModelNoVision: '当前模型未开启视觉支持，请在设置中为该模型开启后再上传图片',
   noModelConfig: '请先在设置中配置 AI 服务商',
   notConfigured: '未配置',
   

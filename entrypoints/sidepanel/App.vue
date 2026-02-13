@@ -15,8 +15,15 @@ import {
   watchThemeMode,
   applyTheme,
   getResolvedTheme,
+  getSelectionQuoteEnabled,
+  watchSelectionQuoteEnabled,
+  getMaxPageContentLength,
+  watchMaxPageContentLength,
+  getMaxToolCalls,
+  watchMaxToolCalls,
   getRawExtractSites,
   isRawExtractSite,
+  isVisionSupportedForModel,
   type AIProvider,
   type Language,
   type ThemeMode,
@@ -31,10 +38,11 @@ import {
   updateSession,
   deleteSession,
   generateSessionTitle,
+  type ChatImage,
   type ChatMessage,
   type ChatSession,
 } from '../../utils/db';
-import { streamChat, getLastApiMessages, setLastApiMessages, type ToolExecutor, type ApiMessage } from '../../utils/api';
+import { streamChat, getLastApiMessages, setLastApiMessages, ApiError, type ToolExecutor, type ApiMessage } from '../../utils/api';
 import { extractPageContent, truncateContent } from '../../utils/pageExtractor';
 import { getToolStatusText, type ToolCall, type ToolResult, type SkillInfo } from '../../utils/tools';
 import { getAllSkills, getSkillByName, getSkillFileAsText, type Skill } from '../../utils/skills';
@@ -74,6 +82,29 @@ const isLoading = ref(false);
 const showHistory = ref(false);
 const chatAreaRef = ref<HTMLElement | null>(null);
 const toolStatus = ref<string | null>(null); // 工具执行状态提示
+const maxPageContentLength = ref(30000);
+const maxToolCalls = ref(100);
+const selectionQuoteEnabled = ref(true);
+const imageInputRef = ref<HTMLInputElement | null>(null);
+const pendingImages = ref<ChatImage[]>([]);
+const isImageDragActive = ref(false);
+const MAX_IMAGE_COUNT = 4;
+const MAX_IMAGE_SIZE_MB = 5;
+const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
+
+interface ActiveTabInfo {
+  title: string;
+  faviconUrl?: string;
+}
+
+const activeTabInfo = ref<ActiveTabInfo | null>(null);
+const selectionQuotePopup = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+  text: '',
+});
+const chatAbortController = ref<AbortController | null>(null);
 
 // Session state
 const currentSession = ref<ChatSession | null>(null);
@@ -111,7 +142,6 @@ const copyButtonPosition = ref<Record<number, 'top' | 'bottom'>>({});
 
 // 计算属性
 const isEditing = computed(() => editingMessageIndex.value !== null);
-const canSendMessage = computed(() => !isEditing.value && !isLoading.value);
 
 // 复制消息（仅 AI 回复）
 async function copyMessage(index: number): Promise<void> {
@@ -204,7 +234,9 @@ async function saveEditMessage(): Promise<void> {
   if (editingMessageIndex.value === null) return;
   
   const newContent = editingContent.value.trim();
-  if (!newContent) {
+  const originalMessage = messages.value[editingMessageIndex.value];
+  const hasImages = Boolean(originalMessage?.images?.length);
+  if (!newContent && !hasImages) {
     alert('消息不能为空');
     return;
   }
@@ -283,9 +315,12 @@ async function regenerateResponse(): Promise<void> {
   
   isLoading.value = true;
   toolStatus.value = null;
+  chatAbortController.value?.abort();
+  chatAbortController.value = new AbortController();
+  let assistantMessage: ChatMessage | null = null;
   
   try {
-    const assistantMessage: ChatMessage = {
+    assistantMessage = {
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
@@ -299,6 +334,8 @@ async function regenerateResponse(): Promise<void> {
       enableTools: true,
       toolExecutor,
       maxIterations: 10,
+      maxToolCalls: maxToolCalls.value,
+      abortSignal: chatAbortController.value.signal,
     };
     
     // 构建 Skills 信息
@@ -350,7 +387,6 @@ async function regenerateResponse(): Promise<void> {
           triggerRef(messages);
           break;
         case 'content':
-          isLoading.value = false;
           assistantMessage.content += event.content;
           triggerRef(messages);
           break;
@@ -380,18 +416,32 @@ async function regenerateResponse(): Promise<void> {
     
     assistantMessage.timestamp = Date.now();
   } catch (error: any) {
-    messages.value.push({
-      role: 'assistant',
-      content: `重新生成失败: ${error.message}`,
-      timestamp: Date.now(),
-    });
-    triggerRef(messages);
+    const isUserAborted = error instanceof ApiError && error.code === 'USER_ABORTED';
+    if (isUserAborted) {
+      if (assistantMessage && !assistantMessage.content.trim() && !(assistantMessage.reasoning || '').trim()) {
+        const lastMessage = messages.value[messages.value.length - 1];
+        if (lastMessage === assistantMessage) {
+          messages.value.pop();
+          triggerRef(messages);
+        }
+      }
+    } else {
+      messages.value.push({
+        role: 'assistant',
+        content: `重新生成失败: ${error.message}`,
+        timestamp: Date.now(),
+      });
+      triggerRef(messages);
+    }
   } finally {
+    chatAbortController.value = null;
     isLoading.value = false;
     toolStatus.value = null;
     await saveCurrentSession();
   }
-}// Skills state
+}
+
+// Skills state
 const installedSkills = ref<Skill[]>([]);
 const showScriptConfirmModal = ref(false);
 const pendingScriptConfirm = ref<{
@@ -427,6 +477,21 @@ const allModelOptions = computed(() => {
   return options;
 });
 
+const activeModelSupportsVision = computed(() => {
+  if (!activeProvider.value) return false;
+  return isVisionSupportedForModel(activeProvider.value, activeProvider.value.selectedModel);
+});
+const hasPendingImages = computed(() => pendingImages.value.length > 0);
+const canSendMessage = computed(() => {
+  return !isEditing.value && !isLoading.value && (inputText.value.trim().length > 0 || hasPendingImages.value);
+});
+
+const activeTabButtonTitle = computed(() => {
+  const statusText = sharePageContent.value ? i18n('pageContentShared') : i18n('sharePageContent');
+  if (!activeTabInfo.value?.title) return statusText;
+  return `${activeTabInfo.value.title} · ${statusText}`;
+});
+
 // Format timestamp
 function formatTime(timestamp: number): string {
   const date = new Date(timestamp);
@@ -452,18 +517,242 @@ function formatSessionDate(timestamp: number): string {
   });
 }
 
+function isEditableElement(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return !!target.closest('textarea, input, [contenteditable="true"], .pending-quote, .pending-images, .inline-selection-quote');
+}
+
+async function refreshActiveTabInfo(): Promise<void> {
+  try {
+    const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url || !tab.title) {
+      activeTabInfo.value = null;
+      return;
+    }
+    activeTabInfo.value = {
+      title: tab.title,
+      faviconUrl: tab.favIconUrl || undefined,
+    };
+  } catch (error) {
+    console.error('Failed to refresh active tab info:', error);
+    activeTabInfo.value = null;
+  }
+}
+
+async function toggleShareCurrentTab(): Promise<void> {
+  sharePageContent.value = !sharePageContent.value;
+}
+
+function removePendingImage(imageId: string): void {
+  pendingImages.value = pendingImages.value.filter(image => image.id !== imageId);
+}
+
+function openImagePicker(): void {
+  if (!activeModelSupportsVision.value) return;
+  imageInputRef.value?.click();
+}
+
+function isSupportedImageFile(file: File): boolean {
+  return file.type.startsWith('image/');
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve(typeof reader.result === 'string' ? reader.result : '');
+    };
+    reader.onerror = () => {
+      reject(reader.error || new Error('Failed to read image file'));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function addPendingImageFiles(fileList: FileList | File[]): Promise<void> {
+  if (!activeModelSupportsVision.value) return;
+
+  const files = Array.from(fileList);
+  if (files.length === 0) return;
+
+  const imageFiles = files.filter(isSupportedImageFile);
+  if (imageFiles.length === 0) {
+    alert(i18n('imageOnlyFiles'));
+    return;
+  }
+
+  const availableSlots = Math.max(0, MAX_IMAGE_COUNT - pendingImages.value.length);
+  if (availableSlots <= 0) {
+    alert(i18n('imageCountLimit', { count: MAX_IMAGE_COUNT }));
+    return;
+  }
+
+  if (imageFiles.length > availableSlots) {
+    alert(i18n('imageCountLimit', { count: MAX_IMAGE_COUNT }));
+  }
+
+  const filesToProcess = imageFiles.slice(0, availableSlots);
+  for (const file of filesToProcess) {
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
+      alert(i18n('imageTooLarge', { sizeMB: MAX_IMAGE_SIZE_MB }));
+      continue;
+    }
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      if (!dataUrl) continue;
+      pendingImages.value.push({
+        id: crypto.randomUUID(),
+        name: file.name,
+        mimeType: file.type || 'image/*',
+        dataUrl,
+      });
+    } catch (error) {
+      console.error('Failed to read image file:', error);
+    }
+  }
+}
+
+async function handleImageInputChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  if (!input.files?.length) return;
+  await addPendingImageFiles(input.files);
+  input.value = '';
+}
+
+function handleInputBoxDragEnter(event: DragEvent): void {
+  if (!activeModelSupportsVision.value) return;
+  if (event.dataTransfer?.types.includes('Files')) {
+    isImageDragActive.value = true;
+  }
+}
+
+function handleInputBoxDragOver(event: DragEvent): void {
+  if (!activeModelSupportsVision.value) return;
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy';
+  }
+  isImageDragActive.value = true;
+}
+
+function handleInputBoxDragLeave(event: DragEvent): void {
+  if (!activeModelSupportsVision.value) return;
+  const currentTarget = event.currentTarget as HTMLElement | null;
+  const relatedTarget = event.relatedTarget as Node | null;
+  if (currentTarget && relatedTarget && currentTarget.contains(relatedTarget)) {
+    return;
+  }
+  isImageDragActive.value = false;
+}
+
+async function handleInputBoxDrop(event: DragEvent): Promise<void> {
+  if (!activeModelSupportsVision.value) return;
+  isImageDragActive.value = false;
+  if (!event.dataTransfer?.files?.length) return;
+  await addPendingImageFiles(event.dataTransfer.files);
+}
+
+function hideSelectionQuotePopup(): void {
+  selectionQuotePopup.value.visible = false;
+}
+
+function getSelectionEndPosition(): { x: number; y: number } | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+
+  const range = selection.getRangeAt(0);
+  const endRange = range.cloneRange();
+  endRange.collapse(false);
+  const rects = endRange.getClientRects();
+
+  if (rects.length > 0) {
+    const lastRect = rects[rects.length - 1];
+    return { x: lastRect.right, y: lastRect.bottom };
+  }
+
+  const boundingRect = range.getBoundingClientRect();
+  if (boundingRect.width === 0 && boundingRect.height === 0) {
+    return null;
+  }
+  return { x: boundingRect.right, y: boundingRect.bottom };
+}
+
+function useSidepanelSelectionQuote(): void {
+  if (!selectionQuotePopup.value.text) return;
+  pendingQuote.value = selectionQuotePopup.value.text;
+  hideSelectionQuotePopup();
+  window.getSelection()?.removeAllRanges();
+}
+
+function handleSidepanelSelectionMouseup(event: MouseEvent): void {
+  if (!selectionQuoteEnabled.value) {
+    hideSelectionQuotePopup();
+    return;
+  }
+  if (isEditableElement(event.target)) {
+    hideSelectionQuotePopup();
+    return;
+  }
+
+  const selection = window.getSelection();
+  const text = selection?.toString().trim() || '';
+  if (!text) {
+    hideSelectionQuotePopup();
+    return;
+  }
+
+  const position = getSelectionEndPosition();
+  if (!position) {
+    hideSelectionQuotePopup();
+    return;
+  }
+
+  selectionQuotePopup.value = {
+    visible: true,
+    x: Math.max(position.x, 12),
+    y: Math.max(position.y + 10, 12),
+    text,
+  };
+}
+
+function handleSidepanelSelectionMousedown(event: MouseEvent): void {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('.inline-selection-quote')) {
+    return;
+  }
+  hideSelectionQuotePopup();
+}
+
+function terminateCurrentGeneration(): void {
+  if (!chatAbortController.value) return;
+  chatAbortController.value.abort();
+  toolStatus.value = currentLanguage.value === 'zh-CN' ? '已终止' : 'Stopped';
+  isLoading.value = false;
+}
+
 // Initialize
 const unwatchProviders = ref<(() => void) | null>(null);
 const unwatchActiveProviderId = ref<(() => void) | null>(null);
 const unwatchLanguage = ref<(() => void) | null>(null);
 const unwatchThemeMode = ref<(() => void) | null>(null);
+const unwatchSelectionQuoteEnabled = ref<(() => void) | null>(null);
+const unwatchMaxPageContentLength = ref<(() => void) | null>(null);
+const unwatchMaxToolCalls = ref<(() => void) | null>(null);
 const systemThemeMediaQuery = ref<MediaQueryList | null>(null);
+let storageChangeListener: ((...args: any[]) => void) | null = null;
+let tabsActivatedListener: ((activeInfo: any) => void) | null = null;
+let tabsUpdatedListener: ((tabId: number, changeInfo: any, tab: any) => void) | null = null;
+let sidepanelSelectionMouseupHandler: ((event: MouseEvent) => void) | null = null;
+let sidepanelSelectionMousedownHandler: ((event: MouseEvent) => void) | null = null;
 
 onMounted(async () => {
   providers.value = await getAllProviders();
   const activeProvider = await getActiveProvider();
   activeProviderId.value = activeProvider?.id || null;
   sharePageContent.value = await getSharePageContent();
+  selectionQuoteEnabled.value = await getSelectionQuoteEnabled();
+  maxPageContentLength.value = await getMaxPageContentLength();
+  maxToolCalls.value = await getMaxToolCalls();
   
   // 加载语言设置
   currentLanguage.value = await getLanguage();
@@ -511,8 +800,41 @@ onMounted(async () => {
     applyTheme(newMode);
   });
 
+  // 监听划词引用设置变化
+  unwatchSelectionQuoteEnabled.value = watchSelectionQuoteEnabled((enabled) => {
+    selectionQuoteEnabled.value = enabled;
+    if (!enabled) {
+      hideSelectionQuotePopup();
+    }
+  });
+
+  // 监听网页提取字数上限变化
+  unwatchMaxPageContentLength.value = watchMaxPageContentLength((value) => {
+    maxPageContentLength.value = value;
+  });
+
+  // 监听工具调用次数上限变化
+  unwatchMaxToolCalls.value = watchMaxToolCalls((value) => {
+    maxToolCalls.value = value;
+  });
+
   // 监听 skills 变更消息
   browser.runtime.onMessage.addListener(handleSkillsChanged);
+
+  // 监听活动标签页变化，保持“当前标签页”卡片同步
+  tabsActivatedListener = () => {
+    refreshActiveTabInfo();
+  };
+  browser.tabs.onActivated.addListener(tabsActivatedListener);
+
+  tabsUpdatedListener = (_tabId: number, changeInfo: any, tab: any) => {
+    if (!tab.active) return;
+    if (changeInfo.status === 'complete' || changeInfo.title || changeInfo.url) {
+      refreshActiveTabInfo();
+    }
+  };
+  browser.tabs.onUpdated.addListener(tabsUpdatedListener);
+  await refreshActiveTabInfo();
 
   // Check for pending quote from content script
   const result = await browser.storage.local.get('pendingQuote');
@@ -522,12 +844,23 @@ onMounted(async () => {
   }
 
   // Listen for storage changes (for pendingQuote only)
-  browser.storage.local.onChanged.addListener(async (changes) => {
+  storageChangeListener = async (changes) => {
     if (changes.pendingQuote?.newValue) {
       pendingQuote.value = changes.pendingQuote.newValue as string;
-      browser.storage.local.remove('pendingQuote');
+      await browser.storage.local.remove('pendingQuote');
     }
-  });
+  };
+  browser.storage.local.onChanged.addListener(storageChangeListener);
+
+  // 侧边栏内划词引用
+  sidepanelSelectionMouseupHandler = (event: MouseEvent) => {
+    handleSidepanelSelectionMouseup(event);
+  };
+  sidepanelSelectionMousedownHandler = (event: MouseEvent) => {
+    handleSidepanelSelectionMousedown(event);
+  };
+  document.addEventListener('mouseup', sidepanelSelectionMouseupHandler);
+  document.addEventListener('mousedown', sidepanelSelectionMousedownHandler);
 });
 
 // Skills 变更消息处理
@@ -564,14 +897,37 @@ const currentThemeIcon = computed(() => {
 
 // 清理 watchers
 onUnmounted(() => {
+  chatAbortController.value?.abort();
+  chatAbortController.value = null;
   unwatchProviders.value?.();
   unwatchActiveProviderId.value?.();
   unwatchLanguage.value?.();
   unwatchThemeMode.value?.();
+  unwatchSelectionQuoteEnabled.value?.();
+  unwatchMaxPageContentLength.value?.();
+  unwatchMaxToolCalls.value?.();
   // 移除系统主题监听
   systemThemeMediaQuery.value?.removeEventListener('change', handleSystemThemeChange);
   // 移除 skills 变更监听
   browser.runtime.onMessage.removeListener(handleSkillsChanged);
+  // 移除标签页监听
+  if (tabsActivatedListener) {
+    browser.tabs.onActivated.removeListener(tabsActivatedListener);
+  }
+  if (tabsUpdatedListener) {
+    browser.tabs.onUpdated.removeListener(tabsUpdatedListener);
+  }
+  // 移除 storage 监听
+  if (storageChangeListener) {
+    browser.storage.local.onChanged.removeListener(storageChangeListener);
+  }
+  // 移除侧边栏内划词监听
+  if (sidepanelSelectionMouseupHandler) {
+    document.removeEventListener('mouseup', sidepanelSelectionMouseupHandler);
+  }
+  if (sidepanelSelectionMousedownHandler) {
+    document.removeEventListener('mousedown', sidepanelSelectionMousedownHandler);
+  }
   // 清理调试面板刷新定时器
   if (debugRefreshTimer) {
     clearInterval(debugRefreshTimer);
@@ -582,6 +938,13 @@ onUnmounted(() => {
 // Watch share page content toggle
 watch(sharePageContent, async (val) => {
   await setSharePageContent(val);
+});
+
+watch(activeModelSupportsVision, (enabled) => {
+  if (!enabled) {
+    pendingImages.value = [];
+    isImageDragActive.value = false;
+  }
 });
 
 // Scroll to bottom
@@ -627,7 +990,7 @@ async function extractCleanPageContent(): Promise<string> {
     const useRawExtract = isRawExtractSite(pageData.url, rawExtractSites);
     
     const extracted = extractPageContent(doc, pageData.url, { useRawExtract });
-    const content = truncateContent(extracted.content);
+    const content = truncateContent(extracted.content, maxPageContentLength.value);
     
     // 始终包含元数据
     const metadata = [
@@ -824,21 +1187,27 @@ function handleSessionListScroll(e: Event) {
 
 // Send message
 async function sendMessage() {
-  console.log('[sendMessage] called, time:', Date.now(), 'isLoading:', isLoading.value);
   const text = inputText.value.trim();
-  if (!text || isLoading.value || isEditing.value) {
-    console.log('[sendMessage] blocked - text:', !!text, 'isLoading:', isLoading.value, 'isEditing:', isEditing.value);
+  const hasImages = pendingImages.value.length > 0;
+  if ((!text && !hasImages) || isLoading.value || isEditing.value) {
+    return;
+  }
+  if (hasImages && !activeModelSupportsVision.value) {
+    pendingImages.value = [];
+    isImageDragActive.value = false;
+    alert(i18n('currentModelNoVision'));
     return;
   }
   
   // 立即设置 loading 状态，防止重复调用
   isLoading.value = true;
-  console.log('[sendMessage] passed check, set isLoading=true, time:', Date.now());
-  
   toolStatus.value = null;
+  chatAbortController.value?.abort();
+  chatAbortController.value = new AbortController();
 
   const provider = await getActiveProvider();
   if (!provider) {
+    chatAbortController.value = null;
     isLoading.value = false;
     alert(i18n('noModelConfig'));
     openSettings();
@@ -850,25 +1219,30 @@ async function sendMessage() {
     await loadInitialSessions();
   }
 
+  const messageImages = pendingImages.value.map(image => ({ ...image }));
   const userMessage: ChatMessage = {
     role: 'user',
     content: text,
     timestamp: Date.now(),
     quote: pendingQuote.value || undefined,
+    images: messageImages.length > 0 ? messageImages : undefined,
   };
 
   messages.value.push(userMessage);
   triggerRef(messages);
   inputText.value = '';
   pendingQuote.value = null;
+  pendingImages.value = [];
+  isImageDragActive.value = false;
   scrollToBottom();
 
   if (messages.value.length === 1) {
-    currentSession.value.title = await generateSessionTitle(text);
+    currentSession.value.title = await generateSessionTitle(text || i18n('uploadImage'));
   }
 
+  let assistantMessage: ChatMessage | null = null;
   try {
-    const assistantMessage: ChatMessage = {
+    assistantMessage = {
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
@@ -881,6 +1255,8 @@ async function sendMessage() {
       enableTools: true, // 默认启用工具
       toolExecutor,
       maxIterations: 10,
+      maxToolCalls: maxToolCalls.value,
+      abortSignal: chatAbortController.value.signal,
     };
 
     // 构建 Skills 信息
@@ -933,7 +1309,6 @@ async function sendMessage() {
           triggerRef(messages);
           break;
         case 'content':
-          isLoading.value = false; // 收到内容后关闭 loading 状态
           assistantMessage.content += event.content;
           triggerRef(messages);
           // 不自动滚动，让用户自行控制查看位置
@@ -966,13 +1341,26 @@ async function sendMessage() {
     
     assistantMessage.timestamp = Date.now();
   } catch (error: any) {
-    messages.value.push({
-      role: 'assistant',
-      content: `错误: ${error.message}`,
-      timestamp: Date.now(),
-    });
-    triggerRef(messages);
+    const isUserAborted = error instanceof ApiError && error.code === 'USER_ABORTED';
+
+    if (isUserAborted) {
+      if (assistantMessage && !assistantMessage.content.trim() && !(assistantMessage.reasoning || '').trim()) {
+        const lastMessage = messages.value[messages.value.length - 1];
+        if (lastMessage === assistantMessage) {
+          messages.value.pop();
+          triggerRef(messages);
+        }
+      }
+    } else {
+      messages.value.push({
+        role: 'assistant',
+        content: `错误: ${error.message}`,
+        timestamp: Date.now(),
+      });
+      triggerRef(messages);
+    }
   } finally {
+    chatAbortController.value = null;
     isLoading.value = false;
     toolStatus.value = null;
     // 不自动滚动，让用户自行控制查看位置
@@ -982,7 +1370,6 @@ async function sendMessage() {
 
 // Handle Enter key
 function handleKeydown(e: KeyboardEvent) {
-  console.log('[handleKeydown]', e.key, 'repeat:', e.repeat, 'time:', Date.now());
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMessage();
@@ -1015,6 +1402,8 @@ async function newChat() {
   currentSession.value = null;
   messages.value = [];
   setLastApiMessages([]); // 清空 API 上下文
+  pendingImages.value = [];
+  isImageDragActive.value = false;
   showHistory.value = false;
 }
 
@@ -1157,6 +1546,20 @@ function formatToolCalls(toolCalls: Array<{ id: string; type: string; function: 
   }).join('\n');
 }
 
+function formatDebugContent(content: ApiMessage['content']): string {
+  if (content === null || content === undefined) return '';
+  if (typeof content === 'string') return content;
+  return content.map((part) => {
+    if (part.type === 'text') {
+      return part.text;
+    }
+    const truncatedUrl = part.image_url.url.length > 120
+      ? `${part.image_url.url.slice(0, 120)}...`
+      : part.image_url.url;
+    return `[image]\n${truncatedUrl}`;
+  }).join('\n\n');
+}
+
 // 脚本确认处理
 function confirmScript(trustForever: boolean) {
   if (pendingScriptConfirm.value) {
@@ -1243,14 +1646,6 @@ function rejectScript() {
       </div>
     </div>
 
-    <!-- Options bar -->
-    <div class="options-bar">
-      <label class="checkbox-label">
-        <input type="checkbox" v-model="sharePageContent" />
-        {{ i18n('sharePageContent') }}
-      </label>
-    </div>
-
     <!-- Chat area -->
     <div class="chat-area" ref="chatAreaRef">
       <div v-if="!messages.length" class="empty-state">
@@ -1280,7 +1675,7 @@ function rejectScript() {
           :class="msg.role"
           @mousemove="msg.role === 'assistant' ? handleMessageMouseMove($event, idx) : undefined"
         >
-          <div v-if="msg.content || msg.reasoning" class="message-time">{{ formatTime(msg.timestamp) }}</div>
+          <div v-if="msg.content || msg.reasoning || msg.images?.length" class="message-time">{{ formatTime(msg.timestamp) }}</div>
           
           <!-- 编辑模式 -->
           <div v-if="editingMessageIndex === idx" class="message-edit-mode">
@@ -1306,7 +1701,7 @@ function rejectScript() {
               <button class="btn btn-outline btn-sm" @click="cancelEditMessage">
                 {{ i18n('cancel') }}
               </button>
-              <button class="btn btn-primary btn-sm" @click="saveEditMessage" :disabled="!editingContent.trim()">
+              <button class="btn btn-primary btn-sm" @click="saveEditMessage" :disabled="!editingContent.trim() && !(messages[idx]?.images?.length)">
                 {{ i18n('send') }}
               </button>
             </div>
@@ -1368,9 +1763,15 @@ function rejectScript() {
                 <div class="reasoning-text" v-html="renderMarkdown(msg.reasoning)"></div>
               </div>
             </div>
-            
+
+            <div v-if="msg.images?.length" class="message-image-grid">
+              <div v-for="image in msg.images" :key="image.id" class="message-image-item">
+                <img :src="image.dataUrl" :alt="image.name" />
+              </div>
+            </div>
+
             <div v-if="msg.role === 'assistant'" class="markdown-content" v-html="renderMarkdown(msg.content)"></div>
-            <div v-else v-html="msg.content.replace(/\n/g, '<br>')"></div>
+            <div v-else-if="msg.content" v-html="msg.content.replace(/\n/g, '<br>')"></div>
             
             <!-- AI 消息底部复制按钮（悬浮显示，仅当鼠标在下半部分时） -->
             <div v-if="msg.role === 'assistant' && msg.content && copyButtonPosition[idx] === 'bottom'" class="message-actions-bottom">
@@ -1408,13 +1809,60 @@ function rejectScript() {
       </div>
     </div>
 
+    <div
+      v-if="selectionQuotePopup.visible"
+      class="inline-selection-quote"
+      :style="{ left: `${selectionQuotePopup.x}px`, top: `${selectionQuotePopup.y}px` }"
+    >
+      <button class="inline-selection-btn" @click="useSidepanelSelectionQuote">
+        {{ i18n('quoteSelection') }}
+      </button>
+    </div>
+
     <!-- Input area -->
     <div class="input-area">
+      <div class="tab-share-row">
+        <button
+          class="current-tab-chip"
+          :class="{ active: sharePageContent, disabled: !activeTabInfo }"
+          :disabled="!activeTabInfo"
+          :title="activeTabButtonTitle"
+          @click="toggleShareCurrentTab"
+        >
+          <span class="tab-favicon" :class="{ placeholder: !activeTabInfo?.faviconUrl }">
+            <img v-if="activeTabInfo?.faviconUrl" :src="activeTabInfo.faviconUrl" alt="" />
+            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="9"/>
+              <path d="M3 12h18M12 3a14.5 14.5 0 0 1 0 18M12 3a14.5 14.5 0 0 0 0 18"/>
+            </svg>
+          </span>
+          <span class="tab-title">{{ activeTabInfo?.title || i18n('currentTab') }}</span>
+        </button>
+      </div>
+
       <div v-if="pendingQuote" class="pending-quote">
         <div class="quote-text">"{{ pendingQuote }}"</div>
         <button class="remove-quote" @click="pendingQuote = null">×</button>
       </div>
-      <div class="input-box">
+      <div v-if="pendingImages.length > 0" class="pending-images">
+        <div v-for="image in pendingImages" :key="image.id" class="pending-image-item">
+          <img :src="image.dataUrl" :alt="image.name" />
+          <button class="pending-image-remove" :title="i18n('removeImage')" @click="removePendingImage(image.id)">
+            ×
+          </button>
+        </div>
+      </div>
+      <div
+        class="input-box"
+        :class="{ 'drag-active': isImageDragActive }"
+        @dragenter.prevent="handleInputBoxDragEnter"
+        @dragover.prevent="handleInputBoxDragOver"
+        @dragleave="handleInputBoxDragLeave"
+        @drop.prevent="handleInputBoxDrop"
+      >
+        <div v-if="activeModelSupportsVision" class="image-upload-hint" :class="{ active: isImageDragActive }">
+          <span>{{ isImageDragActive ? i18n('dragImageHere') : i18n('imageUploadHint') }}</span>
+        </div>
         <textarea
           ref="textareaRef"
           v-model="inputText"
@@ -1423,6 +1871,22 @@ function rejectScript() {
           @keydown="handleKeydown"
         ></textarea>
         <div class="input-actions">
+          <button v-if="activeModelSupportsVision" class="upload-btn" @click="openImagePicker" :title="i18n('uploadImage')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </button>
+          <input
+            v-if="activeModelSupportsVision"
+            ref="imageInputRef"
+            class="image-input"
+            type="file"
+            accept="image/*"
+            multiple
+            @change="handleImageInputChange"
+          />
           <!-- Model selector -->
           <div class="model-selector-wrapper">
             <button 
@@ -1457,8 +1921,11 @@ function rejectScript() {
             <!-- Backdrop -->
             <div v-if="showModelSelector" class="model-backdrop" @click="showModelSelector = false"></div>
           </div>
+          <button v-if="isLoading" class="stop-btn" @click="terminateCurrentGeneration">
+            {{ i18n('stop') }}
+          </button>
           <!-- Send button -->
-          <button class="send-btn" @click="sendMessage" :disabled="isLoading || !inputText.trim() || isEditing">
+          <button class="send-btn" @click="sendMessage" :disabled="!canSendMessage">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
             </svg>
@@ -1557,9 +2024,14 @@ function rejectScript() {
                 </div>
                 <pre class="debug-content debug-reasoning-content">{{ msg.reasoning }}</pre>
               </div>
-              <pre v-if="msg.content" class="debug-content">{{ msg.content }}</pre>
+              <pre v-if="msg.content !== null && msg.content !== undefined" class="debug-content">{{ formatDebugContent(msg.content) }}</pre>
               <pre v-if="msg.tool_calls?.length" class="debug-content debug-tool-calls">{{ formatToolCalls(msg.tool_calls) }}</pre>
-              <div v-if="!msg.content && !msg.tool_calls?.length && !msg.reasoning" class="debug-empty">{{ currentLanguage === 'zh-CN' ? '(空)' : '(empty)' }}</div>
+              <div
+                v-if="((Array.isArray(msg.content) ? msg.content.length === 0 : (msg.content === null || msg.content === undefined || msg.content === '')) && !msg.tool_calls?.length && !msg.reasoning)"
+                class="debug-empty"
+              >
+                {{ currentLanguage === 'zh-CN' ? '(空)' : '(empty)' }}
+              </div>
             </div>
           </div>
         </div>

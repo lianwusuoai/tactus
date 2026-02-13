@@ -14,6 +14,10 @@ import {
   setFloatingBallEnabled,
   getSelectionQuoteEnabled,
   setSelectionQuoteEnabled,
+  getMaxPageContentLength,
+  setMaxPageContentLength,
+  getMaxToolCalls,
+  setMaxToolCalls,
   getRawExtractSites,
   addRawExtractSite,
   removeRawExtractSite,
@@ -44,6 +48,12 @@ const floatingBallEnabled = ref(true);
 // 划词引用设置
 const selectionQuoteEnabled = ref(true);
 
+// 网页内容字数上限
+const maxPageContentLength = ref(30000);
+
+// 工具调用最大次数
+const maxToolCalls = ref(100);
+
 // 原始提取网站设置
 const rawExtractSites = ref<string[]>([]);
 const newRawExtractSite = ref('');
@@ -70,6 +80,7 @@ const formBaseUrl = ref('');
 const formApiKey = ref('');
 const formModels = ref<string[]>([]);
 const formCustomModel = ref('');
+const formVisionModelSupport = ref<Record<string, boolean>>({});
 
 const isNewProvider = computed(() => selectedProviderId.value === 'new');
 
@@ -102,6 +113,10 @@ onMounted(async () => {
   floatingBallEnabled.value = await getFloatingBallEnabled();
   // 加载划词引用设置
   selectionQuoteEnabled.value = await getSelectionQuoteEnabled();
+  // 加载网页字数上限
+  maxPageContentLength.value = await getMaxPageContentLength();
+  // 加载工具调用上限
+  maxToolCalls.value = await getMaxToolCalls();
   // 加载原始提取网站设置
   rawExtractSites.value = await getRawExtractSites();
   
@@ -145,6 +160,7 @@ function selectProvider(id: string) {
     formBaseUrl.value = provider.baseUrl;
     formApiKey.value = provider.apiKey;
     formModels.value = Array.isArray(provider.models) ? [...provider.models] : [];
+    formVisionModelSupport.value = { ...(provider.visionModelSupport || {}) };
     formCustomModel.value = '';
     availableModels.value = [];
   }
@@ -156,6 +172,7 @@ function addNewProvider() {
   formBaseUrl.value = '';
   formApiKey.value = '';
   formModels.value = [];
+  formVisionModelSupport.value = {};
   formCustomModel.value = '';
   availableModels.value = [];
 }
@@ -177,7 +194,11 @@ async function fetchAvailableModels() {
 }
 
 function addModel(model: string) {
-  if (model && !formModels.value.includes(model)) formModels.value.push(model);
+  if (!model || formModels.value.includes(model)) return;
+  formModels.value.push(model);
+  if (typeof formVisionModelSupport.value[model] !== 'boolean') {
+    formVisionModelSupport.value[model] = false;
+  }
 }
 
 function addCustomModel() {
@@ -187,6 +208,15 @@ function addCustomModel() {
 
 function removeModel(model: string) {
   formModels.value = formModels.value.filter(m => m !== model);
+  delete formVisionModelSupport.value[model];
+}
+
+function isModelVisionEnabled(model: string): boolean {
+  return Boolean(formVisionModelSupport.value[model]);
+}
+
+function toggleModelVision(model: string): void {
+  formVisionModelSupport.value[model] = !isModelVisionEnabled(model);
 }
 
 async function saveCurrentProvider() {
@@ -210,6 +240,9 @@ async function saveCurrentProvider() {
       apiKey: formApiKey.value,
       models: [...formModels.value],
       selectedModel,
+      visionModelSupport: Object.fromEntries(
+        formModels.value.map(model => [model, Boolean(formVisionModelSupport.value[model])]),
+      ),
     };
     await saveProvider(provider);
     providers.value = await getAllProviders();
@@ -322,6 +355,22 @@ async function handleSelectionQuoteToggle(enabled: boolean) {
   await setSelectionQuoteEnabled(enabled);
 }
 
+async function handleMaxPageContentLengthChange() {
+  const normalized = Number.isFinite(maxPageContentLength.value)
+    ? Math.max(1000, Math.floor(maxPageContentLength.value))
+    : 30000;
+  maxPageContentLength.value = normalized;
+  await setMaxPageContentLength(normalized);
+}
+
+async function handleMaxToolCallsChange() {
+  const normalized = Number.isFinite(maxToolCalls.value)
+    ? Math.max(1, Math.floor(maxToolCalls.value))
+    : 100;
+  maxToolCalls.value = normalized;
+  await setMaxToolCalls(normalized);
+}
+
 // 原始提取网站管理
 async function handleAddRawExtractSite() {
   const site = newRawExtractSite.value.trim().toLowerCase();
@@ -427,12 +476,31 @@ async function handleRemoveRawExtractSite(site: string) {
                   </div>
                   <div v-if="formModels.length > 0" class="selected-models">
                     <div class="selected-models-label">{{ i18n('addedModels') }}</div>
+                    <p class="selected-models-hint">{{ i18n('supportsVisionDesc') }}</p>
                     <div class="model-list">
                       <div v-for="m in formModels" :key="m" class="model-item">
-                        <span class="model-name">{{ m }}</span>
-                        <button class="remove-model-btn" @click="removeModel(m)" :title="i18n('delete')">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                        </button>
+                        <div class="model-item-main">
+                          <span class="model-name">{{ m }}</span>
+                          <span class="model-vision-state" :class="{ enabled: isModelVisionEnabled(m) }">
+                            {{ isModelVisionEnabled(m) ? i18n('modelVisionEnabled') : i18n('modelVisionDisabled') }}
+                          </span>
+                        </div>
+                        <div class="model-actions">
+                          <button
+                            class="toggle-btn model-vision-toggle"
+                            :class="{ active: isModelVisionEnabled(m) }"
+                            @click="toggleModelVision(m)"
+                            type="button"
+                          >
+                            <span class="toggle-track">
+                              <span class="toggle-thumb"></span>
+                            </span>
+                            <span class="toggle-label">{{ i18n('modelVision') }}</span>
+                          </button>
+                          <button class="remove-model-btn" @click="removeModel(m)" :title="i18n('delete')">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -638,6 +706,69 @@ async function handleRemoveRawExtractSite(site: string) {
               
               <div class="settings-divider"></div>
               
+              <div class="settings-item settings-item-vertical">
+                <div class="settings-item-info">
+                  <div class="settings-item-label">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M4 4h16v16H4z"/>
+                      <path d="M8 8h8M8 12h8M8 16h5"/>
+                    </svg>
+                    <span>{{ i18n('pageContentLimit') }}</span>
+                  </div>
+                  <p class="settings-item-desc">{{ i18n('pageContentLimitDesc') }}</p>
+                </div>
+                <div class="settings-item-content">
+                  <div class="site-input-row">
+                    <input
+                      v-model.number="maxPageContentLength"
+                      type="number"
+                      min="1000"
+                      step="1000"
+                      class="site-input"
+                      @change="handleMaxPageContentLengthChange"
+                    />
+                    <button class="btn btn-primary btn-sm" @click="handleMaxPageContentLengthChange">
+                      {{ i18n('save') }}
+                    </button>
+                  </div>
+                  <p class="settings-hint">{{ i18n('pageContentLimitHint') }}</p>
+                </div>
+              </div>
+
+              <div class="settings-divider"></div>
+
+              <div class="settings-item settings-item-vertical">
+                <div class="settings-item-info">
+                  <div class="settings-item-label">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M3 3h18v4H3z"/>
+                      <path d="M3 10h18v4H3z"/>
+                      <path d="M3 17h18v4H3z"/>
+                    </svg>
+                    <span>{{ i18n('toolCallLimit') }}</span>
+                  </div>
+                  <p class="settings-item-desc">{{ i18n('toolCallLimitDesc') }}</p>
+                </div>
+                <div class="settings-item-content">
+                  <div class="site-input-row">
+                    <input
+                      v-model.number="maxToolCalls"
+                      type="number"
+                      min="1"
+                      step="1"
+                      class="site-input"
+                      @change="handleMaxToolCallsChange"
+                    />
+                    <button class="btn btn-primary btn-sm" @click="handleMaxToolCallsChange">
+                      {{ i18n('save') }}
+                    </button>
+                  </div>
+                  <p class="settings-hint">{{ i18n('toolCallLimitHint') }}</p>
+                </div>
+              </div>
+
+              <div class="settings-divider"></div>
+
               <div class="settings-item settings-item-vertical">
                 <div class="settings-item-info">
                   <div class="settings-item-label">

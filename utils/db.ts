@@ -56,6 +56,40 @@ export interface AIProvider {
   apiKey: string;
   models: string[];
   selectedModel: string;
+  visionModelSupport: Record<string, boolean>;
+}
+
+export interface ChatImage {
+  id: string;
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+}
+
+export interface ApiMessageContentPartText {
+  type: 'text';
+  text: string;
+}
+
+export interface ApiMessageContentPartImage {
+  type: 'image_url';
+  image_url: {
+    url: string;
+  };
+}
+
+export type ApiMessageContent =
+  | string
+  | Array<ApiMessageContentPartText | ApiMessageContentPartImage>
+  | null;
+
+export interface ApiMessageToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
 }
 
 export interface ChatMessage {
@@ -65,12 +99,17 @@ export interface ChatMessage {
   pageContext?: string;
   quote?: string;
   reasoning?: string;  // 思维链内容（如 DeepSeek reasoning_content）
+  images?: ChatImage[];
 }
 
 export interface ApiMessageRecord {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  content: ApiMessageContent;
+  reasoning?: string | null;
+  tool_calls?: ApiMessageToolCall[];
+  tool_call_id?: string;
   toolName?: string;
+  name?: string;
 }
 
 export interface ChatSession {

@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions';
-import type { AIProvider, ChatMessage } from './db';
+import type { ChatMessage } from './db';
+import { isVisionSupportedForModel, type AIProvider } from './storage';
 import { 
   getFilteredTools, 
   generateContextPrompt, 
@@ -58,6 +59,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   'SERVER_ERROR': '服务器内部错误，请稍后重试',
   'TOOL_PARSE_ERROR': '工具调用参数解析失败，已达最大重试次数',
   'TOOL_EXECUTION_ERROR': '工具执行失败，已达最大重试次数',
+  'TOOL_CALL_LIMIT_EXCEEDED': '工具调用次数已达上限，请调整设置后重试',
+  'USER_ABORTED': '已终止本次生成',
   'UNKNOWN': '发生未知错误，请稍后重试',
 };
 
@@ -130,20 +133,56 @@ function getRetryDelay(attempt: number, config: RetryConfig): number {
   return Math.min(exponentialDelay + jitter, config.maxDelay);
 }
 
+function createUserAbortError(originalError?: unknown): ApiError {
+  return new ApiError(ERROR_MESSAGES['USER_ABORTED'], 'USER_ABORTED', false, originalError);
+}
+
 // 创建带超时的 AbortController
-function createTimeoutController(timeout: number): { controller: AbortController; clear: () => void } {
+function createTimeoutController(timeout: number, externalSignal?: AbortSignal): { controller: AbortController; clear: () => void } {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const handleExternalAbort = () => controller.abort();
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', handleExternalAbort, { once: true });
+    }
+  }
+
   return {
     controller,
-    clear: () => clearTimeout(timeoutId),
+    clear: () => {
+      clearTimeout(timeoutId);
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', handleExternalAbort);
+      }
+    },
   };
 }
 
 // API 消息类型
+export interface ApiMessageTextPart {
+  type: 'text';
+  text: string;
+}
+
+export interface ApiMessageImagePart {
+  type: 'image_url';
+  image_url: {
+    url: string;
+  };
+}
+
+export type ApiMessageContent =
+  | string
+  | Array<ApiMessageTextPart | ApiMessageImagePart>
+  | null;
+
 export interface ApiMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: ApiMessageContent;
   reasoning?: string | null;  // 思维链内容（如 DeepSeek reasoning_content）
   tool_calls?: Array<{
     id: string;
@@ -212,6 +251,8 @@ export interface FunctionCallingConfig {
   enableTools: boolean;
   toolExecutor?: ToolExecutor;
   maxIterations?: number;
+  maxToolCalls?: number;
+  abortSignal?: AbortSignal;
 }
 
 // 流式聊天事件类型
@@ -308,20 +349,87 @@ function convertToOpenAIMessages(messages: ApiMessage[]): ChatCompletionMessageP
     if (m.role === 'tool') {
       return {
         role: 'tool' as const,
-        content: m.content || '',
+        content: typeof m.content === 'string' ? m.content : '',
         tool_call_id: m.tool_call_id!,
       };
     }
     if (m.role === 'assistant' && m.tool_calls) {
       return {
         role: 'assistant' as const,
-        content: m.content,
+        content: typeof m.content === 'string' ? m.content : '',
         tool_calls: m.tool_calls,
       };
     }
+    if (m.role === 'user') {
+      return {
+        role: 'user' as const,
+        content: Array.isArray(m.content) ? m.content : (m.content || ''),
+      };
+    }
+    if (m.role === 'system') {
+      return {
+        role: 'system' as const,
+        content: typeof m.content === 'string' ? m.content : '',
+      };
+    }
+    if (m.role === 'assistant') {
+      return {
+        role: 'assistant' as const,
+        content: typeof m.content === 'string' ? m.content : '',
+      };
+    }
     return {
-      role: m.role as 'system' | 'user' | 'assistant',
-      content: m.content || '',
+      role: 'user' as const,
+      content: '',
+    };
+  });
+}
+
+function getQuotedText(message: Pick<ChatMessage, 'content' | 'quote'>): string {
+  return message.quote ? `[Quote: "${message.quote}"]\n\n${message.content}` : message.content;
+}
+
+function buildUserMessageContent(
+  message: Pick<ChatMessage, 'content' | 'quote' | 'images'>,
+  allowImages: boolean,
+): ApiMessageContent {
+  const text = getQuotedText(message);
+  if (!allowImages || !message.images?.length) {
+    return text;
+  }
+
+  const parts: Array<ApiMessageTextPart | ApiMessageImagePart> = [];
+  if (text.trim().length > 0) {
+    parts.push({ type: 'text', text });
+  }
+  for (const image of message.images) {
+    if (image.dataUrl) {
+      parts.push({
+        type: 'image_url',
+        image_url: { url: image.dataUrl },
+      });
+    }
+  }
+  return parts;
+}
+
+function stripImageParts(content: ApiMessageContent): ApiMessageContent {
+  if (!Array.isArray(content)) return content;
+  const text = content
+    .filter((part): part is ApiMessageTextPart => part.type === 'text')
+    .map(part => part.text)
+    .join('\n\n')
+    .trim();
+  return text;
+}
+
+function sanitizeMessagesForVision(messages: ApiMessage[], allowImages: boolean): ApiMessage[] {
+  if (allowImages) return messages.map(message => ({ ...message }));
+  return messages.map(message => {
+    if (message.role !== 'user') return { ...message };
+    return {
+      ...message,
+      content: stripImageParts(message.content),
     };
   });
 }
@@ -338,6 +446,14 @@ export async function* streamChat(
   const enableTools = config?.enableTools ?? true;
   const toolExecutor = config?.toolExecutor;
   const maxIterations = config?.maxIterations || 5;
+  const maxToolCalls = Math.max(1, config?.maxToolCalls || 100);
+  const allowImages = isVisionSupportedForModel(provider, provider.selectedModel);
+  const abortSignal = config?.abortSignal;
+  const ensureNotAborted = () => {
+    if (abortSignal?.aborted) {
+      throw createUserAbortError();
+    }
+  };
   
   const client = createClient(provider);
   
@@ -357,7 +473,7 @@ export async function* streamChat(
   
   if (previousApiMessages && previousApiMessages.length > 0) {
     // 如果有之前保存的 API 上下文，使用它并更新 system 消息
-    apiMessages = [...previousApiMessages];
+    apiMessages = sanitizeMessagesForVision(previousApiMessages, allowImages);
     // 更新 system 消息（可能上下文有变化）
     if (apiMessages[0]?.role === 'system') {
       apiMessages[0].content = systemMessage;
@@ -367,7 +483,7 @@ export async function* streamChat(
     if (lastMessage && lastMessage.role === 'user') {
       apiMessages.push({
         role: 'user',
-        content: lastMessage.quote ? `[Quote: "${lastMessage.quote}"]\n\n${lastMessage.content}` : lastMessage.content,
+        content: buildUserMessageContent(lastMessage, allowImages),
       });
     }
   } else {
@@ -376,7 +492,7 @@ export async function* streamChat(
       { role: 'system', content: systemMessage },
       ...messages.map(m => ({
         role: m.role as 'user' | 'assistant',
-        content: m.quote ? `[Quote: "${m.quote}"]\n\n${m.content}` : m.content,
+        content: m.role === 'user' ? buildUserMessageContent(m, allowImages) : m.content,
       })),
     ];
   }
@@ -391,8 +507,10 @@ export async function* streamChat(
   let currentMessages = [...apiMessages];
   let toolCallRetryCount = 0; // 工具调用重试计数（包括参数解析错误）
   const maxToolCallRetries = 3; // 工具调用最大重试次数
+  let executedToolCallCount = 0;
   
   while (iteration < maxIterations) {
+    ensureNotAborted();
     iteration++;
     
     // 带重试的 API 调用
@@ -400,7 +518,8 @@ export async function* streamChat(
     let lastError: ApiError | null = null;
     
     for (let attempt = 0; attempt <= retryConfig.maxRetries; attempt++) {
-      const { controller, clear } = createTimeoutController(retryConfig.timeout);
+      ensureNotAborted();
+      const { controller, clear } = createTimeoutController(retryConfig.timeout, abortSignal);
       
       try {
         stream = await client.chat.completions.create({
@@ -419,6 +538,9 @@ export async function* streamChat(
         
       } catch (error) {
         clear();
+        if (abortSignal?.aborted) {
+          throw createUserAbortError(error);
+        }
         lastError = parseError(error);
         
         // 不可重试的错误，直接抛出
@@ -447,6 +569,7 @@ export async function* streamChat(
         };
         
         await delay(retryDelay);
+        ensureNotAborted();
       }
     }
     
@@ -477,6 +600,7 @@ export async function* streamChat(
     // 流式读取响应（带错误处理）
     try {
       for await (const chunk of stream) {
+        ensureNotAborted();
         const delta = chunk.choices[0]?.delta;
         
         // 处理思维链内容（DeepSeek reasoning_content）
@@ -549,6 +673,9 @@ export async function* streamChat(
         }
       }
     } catch (streamError) {
+      if (abortSignal?.aborted) {
+        throw createUserAbortError(streamError);
+      }
       const apiError = parseError(streamError);
       yield { type: 'error', error: apiError, retrying: false, attempt: retryConfig.maxRetries };
       throw apiError;
@@ -566,6 +693,7 @@ export async function* streamChat(
     
     // 检查是否有工具调用
     if (toolCalls.length > 0 && toolExecutor) {
+      ensureNotAborted();
       // 尝试修复不完整的 JSON 参数（处理某些模型截断输出的情况）
       for (const tc of toolCalls) {
         if (tc.arguments) {
@@ -637,6 +765,17 @@ export async function* streamChat(
       // 执行每个工具调用
       let hasExecutionError = false;
       for (const tc of toolCalls) {
+        ensureNotAborted();
+        if (executedToolCallCount >= maxToolCalls) {
+          const error = new ApiError(
+            `工具调用次数已达上限（${maxToolCalls}）`,
+            'TOOL_CALL_LIMIT_EXCEEDED',
+            false
+          );
+          yield { type: 'error', error, retrying: false, attempt: executedToolCallCount };
+          throw error;
+        }
+
         const parsedArgs = JSON.parse(tc.arguments || '{}');
         
         const toolCall: ToolCall = {
@@ -649,6 +788,7 @@ export async function* streamChat(
         yield { type: 'thinking', message: getToolStatusText(tc.name, parsedArgs) };
         
         // 执行工具
+        executedToolCallCount++;
         const result = await toolExecutor(toolCall);
         yield { type: 'tool_result', result };
         
@@ -726,6 +866,7 @@ export async function* streamChatSimple(
   retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG
 ): AsyncGenerator<string, void, unknown> {
   const client = createClient(provider);
+  const allowImages = isVisionSupportedForModel(provider, provider.selectedModel);
   
   const basePrompt = `You are a helpful AI assistant. Always respond using Markdown format for better readability. Use:
 - Headers (##, ###) for sections
@@ -743,7 +884,7 @@ export async function* streamChatSimple(
     { role: 'system', content: systemMessage },
     ...messages.map(m => ({
       role: m.role as 'user' | 'assistant',
-      content: m.quote ? `[Quote: "${m.quote}"]\n\n${m.content}` : m.content,
+      content: m.role === 'user' ? buildUserMessageContent(m, allowImages) : m.content,
     })),
   ];
 

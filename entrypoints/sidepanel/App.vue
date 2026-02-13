@@ -44,10 +44,12 @@ import {
 } from '../../utils/db';
 import { streamChat, getLastApiMessages, setLastApiMessages, ApiError, type ToolExecutor, type ApiMessage } from '../../utils/api';
 import { extractPageContent, truncateContent } from '../../utils/pageExtractor';
-import { getToolStatusText, type ToolCall, type ToolResult, type SkillInfo } from '../../utils/tools';
+import { getToolStatusText, isMcpTool, parseMcpToolName, type ToolCall, type ToolResult, type SkillInfo } from '../../utils/tools';
 import { getAllSkills, getSkillByName, getSkillFileAsText, type Skill } from '../../utils/skills';
 import { executeScript, setScriptConfirmCallback, type ScriptConfirmationRequest } from '../../utils/skillsExecutor';
 import { t, type Translations } from '../../utils/i18n';
+import { mcpManager, type McpTool } from '../../utils/mcp';
+import { getEnabledMcpServers, watchMcpServers } from '../../utils/mcpStorage';
 
 // Configure marked for safe rendering
 marked.setOptions({
@@ -373,7 +375,7 @@ async function regenerateResponse(): Promise<void> {
     for await (const event of streamChat(
       provider,
       messages.value.slice(0, -1),
-      { sharePageContent: sharePageContent.value, skills: skillsInfo, pageInfo, language: currentLanguage },
+      { sharePageContent: sharePageContent.value, skills: skillsInfo, mcpTools: mcpTools.value, pageInfo, language: currentLanguage },
       reactConfig,
       undefined, // retryConfig 使用默认值
       hasValidPreviousContext ? previousApiMessages : undefined
@@ -448,6 +450,11 @@ const pendingScriptConfirm = ref<{
   request: ScriptConfirmationRequest;
   resolve: (result: { confirmed: boolean; trustForever: boolean }) => void;
 } | null>(null);
+
+// MCP state
+const mcpTools = ref<McpTool[]>([]);
+const mcpConnecting = ref(false);
+const unwatchMcpServers = ref<(() => void) | null>(null);
 
 // Computed
 const activeProvider = computed(() => {
@@ -768,6 +775,14 @@ onMounted(async () => {
   // 加载已安装的 Skills
   installedSkills.value = await getAllSkills();
   
+  // 初始化 MCP 连接
+  await initMcpConnections();
+  
+  // 监听 MCP Server 配置变化
+  unwatchMcpServers.value = watchMcpServers(async () => {
+    await initMcpConnections();
+  });
+  
   // 设置脚本确认回调
   setScriptConfirmCallback(async (request) => {
     return new Promise((resolve) => {
@@ -872,6 +887,36 @@ function handleSkillsChanged(message: any) {
   }
 }
 
+// MCP 连接初始化
+async function initMcpConnections() {
+  mcpConnecting.value = true;
+  mcpTools.value = [];
+  
+  try {
+    // 先断开所有现有连接
+    await mcpManager.disconnectAll();
+    
+    // 获取启用的 MCP Server 配置
+    const enabledServers = await getEnabledMcpServers();
+    
+    // 连接每个 Server 并收集工具
+    const allTools: McpTool[] = [];
+    for (const server of enabledServers) {
+      try {
+        const tools = await mcpManager.connect(server);
+        allTools.push(...tools);
+        console.log(`[MCP] 已连接 ${server.name}，获取 ${tools.length} 个工具`);
+      } catch (error) {
+        console.error(`[MCP] 连接 ${server.name} 失败:`, error);
+      }
+    }
+    
+    mcpTools.value = allTools;
+  } finally {
+    mcpConnecting.value = false;
+  }
+}
+
 // 系统主题变化处理
 function handleSystemThemeChange() {
   if (currentThemeMode.value === 'system') {
@@ -933,6 +978,8 @@ onUnmounted(() => {
     clearInterval(debugRefreshTimer);
     debugRefreshTimer = null;
   }
+  // 断开所有 MCP 连接
+  mcpManager.disconnectAll();
 });
 
 // Watch share page content toggle
@@ -1127,13 +1174,32 @@ ${skill.references.length > 0
         success: true,
       };
     }
-    default:
+    default: {
+      // 检查是否为 MCP 工具
+      if (isMcpTool(toolCall.name)) {
+        const parsed = parseMcpToolName(toolCall.name);
+        if (parsed) {
+          const mcpResult = await mcpManager.callTool(
+            parsed.serverId,
+            parsed.toolName,
+            toolCall.arguments
+          );
+          return {
+            tool_call_id: toolCall.id,
+            name: toolCall.name,
+            result: mcpResult.content,
+            success: mcpResult.success,
+          };
+        }
+      }
+      
       return {
         tool_call_id: toolCall.id,
         name: toolCall.name,
         result: `未知工具: ${toolCall.name}`,
         success: false,
       };
+    }
   }
 };
 
@@ -1294,7 +1360,7 @@ async function sendMessage() {
     for await (const event of streamChat(
       provider, 
       messages.value.slice(0, -1), 
-      { sharePageContent: sharePageContent.value, skills: skillsInfo, pageInfo, language: currentLanguage }, 
+      { sharePageContent: sharePageContent.value, skills: skillsInfo, mcpTools: mcpTools.value, pageInfo, language: currentLanguage }, 
       reactConfig,
       undefined, // retryConfig 使用默认值
       hasValidPreviousContext ? previousApiMessages : undefined

@@ -2,6 +2,8 @@
  * OpenAI Function Calling 工具定义
  */
 
+import { mcpManager, mcpToolToOpenAITool, parseMcpToolName, isMcpTool, type McpTool } from './mcp';
+
 // OpenAI Function Calling 格式的工具定义
 export interface FunctionTool {
   type: 'function';
@@ -44,12 +46,23 @@ const toolStatusTexts: ToolStatusMap = {
   read_skill_file: '正在读取文件...',
 };
 
+// 导出 MCP 相关函数
+export { parseMcpToolName, isMcpTool };
+
 // 工具状态提示文本（动态，带参数）
 function getDynamicToolStatusText(
   toolName: string,
   args?: Record<string, any>
 ): string | null {
   if (!args) return null;
+
+  // MCP 工具
+  if (isMcpTool(toolName)) {
+    const parsed = parseMcpToolName(toolName);
+    if (parsed) {
+      return `正在调用 MCP 工具: ${parsed.toolName}...`;
+    }
+  }
 
   switch (toolName) {
     case 'activate_skill':
@@ -160,22 +173,37 @@ export interface SkillInfo {
 export function getFilteredTools(context?: {
   sharePageContent?: boolean;
   skills?: SkillInfo[];
+  mcpTools?: McpTool[];
 }): FunctionTool[] {
-  return availableTools.filter(tool => {
+  const tools: FunctionTool[] = [];
+
+  // 添加内置工具
+  for (const tool of availableTools) {
     const toolName = tool.function.name;
     
     // 如果未分享页面内容，禁用 extract_page_content
     if (toolName === 'extract_page_content' && !context?.sharePageContent) {
-      return false;
+      continue;
     }
     
     // 如果没有 skills，禁用 skill 相关工具
     if ((toolName === 'activate_skill' || toolName === 'execute_skill_script' || toolName === 'read_skill_file')) {
-      return context?.skills && context.skills.length > 0;
+      if (!context?.skills || context.skills.length === 0) {
+        continue;
+      }
     }
     
-    return true;
-  });
+    tools.push(tool);
+  }
+
+  // 添加 MCP 工具
+  if (context?.mcpTools && context.mcpTools.length > 0) {
+    for (const mcpTool of context.mcpTools) {
+      tools.push(mcpToolToOpenAITool(mcpTool));
+    }
+  }
+
+  return tools;
 }
 
 // 生成 Skills 系统提示（用于 function calling 上下文）
@@ -211,10 +239,51 @@ ${skillsXml}
 // 语言类型
 export type Language = 'en' | 'zh-CN';
 
+// 生成 MCP 工具上下文提示
+function buildMcpToolsContextPrompt(mcpTools?: McpTool[]): string {
+  if (!mcpTools || mcpTools.length === 0) {
+    return '';
+  }
+
+  // 按 Server 分组
+  const toolsByServer = new Map<string, McpTool[]>();
+  for (const tool of mcpTools) {
+    const existing = toolsByServer.get(tool.serverName) || [];
+    existing.push(tool);
+    toolsByServer.set(tool.serverName, existing);
+  }
+
+  const serverSections: string[] = [];
+  for (const [serverName, tools] of toolsByServer) {
+    const toolsXml = tools.map(tool =>
+      `    <tool>
+      <name>${tool.name}</name>
+      <description>${tool.description || '无描述'}</description>
+    </tool>`
+    ).join('\n');
+
+    serverSections.push(`  <server name="${serverName}">
+${toolsXml}
+  </server>`);
+  }
+
+  return `
+
+## MCP 工具
+以下 MCP Server 已连接，你可以使用它们提供的工具：
+
+<mcp_servers>
+${serverSections.join('\n')}
+</mcp_servers>
+
+调用 MCP 工具时，工具名称格式为 \`mcp__{serverId}__{toolName}\`，直接使用即可。`;
+}
+
 // 生成上下文提示
 export function generateContextPrompt(context?: {
   sharePageContent?: boolean;
   skills?: SkillInfo[];
+  mcpTools?: McpTool[];
   pageInfo?: {
     domain: string;
     title: string;
@@ -244,9 +313,10 @@ export function generateContextPrompt(context?: {
   }
 
   const skillsPrompt = buildSkillsContextPrompt(context?.skills);
+  const mcpPrompt = buildMcpToolsContextPrompt(context?.mcpTools);
 
   return `## 当前上下文
-${hints.join('\n')}${skillsPrompt}
+${hints.join('\n')}${skillsPrompt}${mcpPrompt}
 
 ## 重要提示
 - 不要假设页面内容，必须通过工具获取真实内容

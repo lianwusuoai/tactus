@@ -16,6 +16,7 @@ export interface Translations {
   // 导航
   navModels: string;
   navSkills: string;
+  navMcp: string;
   navSettings: string;
   
   // 模型配置
@@ -106,6 +107,41 @@ export interface Translations {
   addSite: string;
   noSitesConfigured: string;
   
+  // MCP 配置
+  mcpConfig: string;
+  mcpConfigDesc: string;
+  mcpServerList: string;
+  mcpAddServer: string;
+  mcpEditServer: string;
+  mcpServerName: string;
+  mcpServerNamePlaceholder: string;
+  mcpServerUrl: string;
+  mcpServerUrlPlaceholder: string;
+  mcpServerUrlHint: string;
+  mcpServerDescription: string;
+  mcpServerDescriptionPlaceholder: string;
+  mcpServerStatus: string;
+  mcpEnabled: string;
+  mcpDisabled: string;
+  mcpNoServers: string;
+  mcpSelectOrAdd: string;
+  mcpTestConnection: string;
+  mcpTest: string;
+  mcpTesting: string;
+  mcpTestSuccess: string;
+  mcpToolCount: string;
+  mcpConfirmDelete: string;
+  mcpInvalidUrl: string;
+  mcpEnterUrl: string;
+  mcpAuthToken: string;
+  mcpAuthTokenPlaceholder: string;
+  mcpAuthTokenHint: string;
+  mcpAuthType: string;
+  mcpAuthNone: string;
+  mcpAuthBearer: string;
+  mcpAuthOAuth: string;
+  mcpOAuthHint: string;
+  
   // Sidepanel
   newChat: string;
   history: string;
@@ -166,6 +202,7 @@ const en: Translations = {
   // 导航
   navModels: 'Models',
   navSkills: 'Skills',
+  navMcp: 'MCP',
   navSettings: 'Settings',
   
   // 模型配置
@@ -256,6 +293,41 @@ const en: Translations = {
   addSite: 'Add',
   noSitesConfigured: 'No sites configured',
   
+  // MCP 配置
+  mcpConfig: 'MCP Configuration',
+  mcpConfigDesc: 'Connect to MCP (Model Context Protocol) servers to extend AI capabilities',
+  mcpServerList: 'MCP Servers',
+  mcpAddServer: 'Add Server',
+  mcpEditServer: 'Edit Server',
+  mcpServerName: 'Server Name',
+  mcpServerNamePlaceholder: 'e.g. My MCP Server',
+  mcpServerUrl: 'Server URL',
+  mcpServerUrlPlaceholder: 'http://localhost:3000/mcp',
+  mcpServerUrlHint: 'HTTP endpoint of the MCP server (Streamable HTTP transport)',
+  mcpServerDescription: 'Description',
+  mcpServerDescriptionPlaceholder: 'Optional description',
+  mcpServerStatus: 'Status',
+  mcpEnabled: 'Enabled',
+  mcpDisabled: 'Disabled',
+  mcpNoServers: 'No MCP servers configured',
+  mcpSelectOrAdd: 'Select a server to view details, or add a new one',
+  mcpTestConnection: 'Test Connection',
+  mcpTest: 'Test',
+  mcpTesting: 'Testing...',
+  mcpTestSuccess: 'Connection successful',
+  mcpToolCount: '{count} tools available',
+  mcpConfirmDelete: 'Are you sure you want to delete this MCP server?',
+  mcpInvalidUrl: 'Please enter a valid URL',
+  mcpEnterUrl: 'Please enter the server URL first',
+  mcpAuthToken: 'Auth Token',
+  mcpAuthTokenPlaceholder: 'Bearer token for authentication (optional)',
+  mcpAuthTokenHint: 'If the MCP server requires authentication, enter the Bearer token here',
+  mcpAuthType: 'Authentication',
+  mcpAuthNone: 'None',
+  mcpAuthBearer: 'Bearer Token',
+  mcpAuthOAuth: 'OAuth 2.1',
+  mcpOAuthHint: 'OAuth authentication will open a browser window for authorization when connecting. The token will be automatically managed.',
+  
   // Sidepanel
   newChat: 'New Chat',
   history: 'History',
@@ -316,6 +388,7 @@ const zhCN: Translations = {
   // 导航
   navModels: '模型配置',
   navSkills: 'Skills 管理',
+  navMcp: 'MCP 配置',
   navSettings: '通用设置',
   
   // 模型配置
@@ -405,6 +478,41 @@ const zhCN: Translations = {
   rawExtractSitesHint: '输入域名关键词，如 "youtube" 将匹配 youtube.com',
   addSite: '添加',
   noSitesConfigured: '暂无配置',
+  
+  // MCP 配置
+  mcpConfig: 'MCP 配置',
+  mcpConfigDesc: '连接 MCP (Model Context Protocol) 服务器，扩展 AI 能力',
+  mcpServerList: 'MCP 服务器',
+  mcpAddServer: '添加服务器',
+  mcpEditServer: '编辑服务器',
+  mcpServerName: '服务器名称',
+  mcpServerNamePlaceholder: '例如：我的 MCP 服务器',
+  mcpServerUrl: '服务器地址',
+  mcpServerUrlPlaceholder: 'http://localhost:3000/mcp',
+  mcpServerUrlHint: 'MCP 服务器的 HTTP 端点地址（Streamable HTTP 传输）',
+  mcpServerDescription: '描述',
+  mcpServerDescriptionPlaceholder: '可选的描述信息',
+  mcpServerStatus: '状态',
+  mcpEnabled: '已启用',
+  mcpDisabled: '已禁用',
+  mcpNoServers: '暂无 MCP 服务器配置',
+  mcpSelectOrAdd: '选择一个服务器查看详情，或添加新的服务器',
+  mcpTestConnection: '测试连接',
+  mcpTest: '测试',
+  mcpTesting: '测试中...',
+  mcpTestSuccess: '连接成功',
+  mcpToolCount: '可用 {count} 个工具',
+  mcpConfirmDelete: '确定删除这个 MCP 服务器吗？',
+  mcpInvalidUrl: '请输入有效的 URL 地址',
+  mcpEnterUrl: '请先输入服务器地址',
+  mcpAuthToken: '认证 Token',
+  mcpAuthTokenPlaceholder: '用于认证的 Bearer Token（可选）',
+  mcpAuthTokenHint: '如果 MCP 服务器需要认证，请在此输入 Bearer Token',
+  mcpAuthType: '认证方式',
+  mcpAuthNone: '无需认证',
+  mcpAuthBearer: 'Bearer Token',
+  mcpAuthOAuth: 'OAuth 2.1',
+  mcpOAuthHint: 'OAuth 认证将在连接时打开浏览器窗口进行授权，Token 将自动管理。',
   
   // Sidepanel
   newChat: '新建对话',

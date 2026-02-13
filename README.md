@@ -8,7 +8,7 @@ Tactus is an innovative browser extension that brings the [Agent Skills](https:/
 
 Triggering skills can achieve prompt injection for specific scenarios, and common workflows can be encapsulated in scripts for execution, replacing repetitive automated operations of AI Agents. This approach is both fast and token-efficient.
 
-<!-- Demo GIF placeholder -->
+<!-- Demo GIF  -->
 ![Tactus Demo](resources/trust-skill.png)
 ![Tactus Demo](resources/show-result.png)
 
@@ -22,30 +22,70 @@ Tactus is the first product to implement the Agent Skills specification in a bro
 - **Script Execution** - Safely execute JavaScript scripts within pages
 - **Trust Mechanism** - First-time script execution requires user confirmation, with option to permanently trust
 
-<!-- Skills Import Demo placeholder -->
+<!-- Skills Import Demo  -->
 ![Skills Import Demo](resources/add-skill.png)
 
 ### 🤖 Intelligent Conversation
 
-- **OpenAI Compatible API** - Supports OpenAI-compatible API providers
+- **OpenAI Compatible API** - Supports any OpenAI-compatible API provider (including domestic model services)
 - **Multi-Model Switching** - Configure multiple providers and switch models anytime
 - **Streaming Response** - Real-time AI replies with chain-of-thought display
-- **ReAct Paradigm** - Built-in tool calling loop, AI autonomously decides when to use tools
+- **ReAct Paradigm** - Built-in complete tool calling loop, AI autonomously decides when to use tools
+- **Stop Generation** - Interrupt ongoing AI generation or tool calls at any time
+
+### 🖼️ Image Vision Support
+
+- **Vision Model Config** - Configure vision capability independently per model
+- **Paste Images** - Paste images directly in the chat input to send to AI
+- **Multimodal Chat** - Support image-text mixed queries, letting AI understand screenshots, charts, and other visual content
+
+<!-- Vision Demo  -->
+![Vision Demo](resources/identify-image.png)
 
 ### 📄 Page Understanding
 
 - **Smart Extraction** - Uses Readability + Turndown to extract core page content and convert to Markdown
-- **Selection Quote** - Select text on page and quote it with one click
-- **Context Awareness** - AI determines whether to call page extraction tool; skips if skill script provides it
+- **Selection Quote** - Select text on page or in sidebar and quote it with one click
+- **Context Awareness** - AI determines whether to call page extraction tool; skips if skill script provides content
+- **Raw Extraction Mode** - Configure specific websites to skip Readability algorithm and extract raw page content directly
 
-<!-- Page Interaction Demo placeholder -->
+<!-- Page Interaction Demo  -->
 ![Page Interaction Demo](resources/page-interaction.png)
+
+### 🔌 HTTP MCP Support
+
+Connect to external tool servers via [Model Context Protocol](https://modelcontextprotocol.io/), extending AI capabilities:
+
+- **MCP Server Connection** - Add and manage multiple HTTP MCP Servers
+- **Dynamic Tool Discovery** - Automatically fetch available tools from MCP Server and integrate into conversations
+- **Multiple Auth Methods**:
+  - No authentication (public services)
+  - Bearer Token authentication
+  - OAuth 2.1 authentication (with auto-refresh)
+
+<!-- MCP Config Demo  -->
+
+
+### 🎨 Themes & Personalization
+
+- **Theme Switching** - Support light, dark, and system-follow theme modes
+- **Floating Ball Toggle** - Freely enable/disable the floating ball on the right side of the page
+- **Selection Quote Toggle** - Freely enable/disable the selection quote feature
+- **Internationalization** - Support Chinese/English interface switching
 
 ### 💾 Local Storage
 
 - **Session Management** - Conversation history stored locally with pagination support
+- **Message Editing** - Edit sent user messages and regenerate replies
+- **Message Copy** - One-click copy for AI replies
 - **IndexedDB** - Skills and files stored in local database
 - **Privacy First** - All data saved locally, nothing uploaded to any server
+
+### ⚙️ Advanced Configuration
+
+- **Web Content Char Limit** - Configure maximum characters for extracted page content to control token usage
+- **Tool Call Limit** - Configure maximum tool calls per conversation to prevent infinite loops
+- **Smart Base URL Handling** - Auto-complete `/v1/chat/completions` path to simplify API configuration
 
 ## 🚀 Quick Start
 
@@ -92,8 +132,9 @@ npm run build
 2. Click the settings button to enter configuration page
 3. Add API provider (fill in name, API URL, key)
 4. Fetch model list and select a model
+5. Enable vision config in model settings if vision capability is needed
 
-<!-- Configuration Demo placeholder -->
+<!-- Configuration Demo  -->
 ![Configuration Demo](resources/set-llm.png)
 
 ### Import Skill
@@ -102,6 +143,13 @@ npm run build
 2. Click "Import Skill" button
 3. Select a folder containing `SKILL.md`
 4. Confirm import and use it in conversations
+
+### Configure MCP Server
+
+1. Find the MCP management area in settings page
+2. Click to add an MCP Server
+3. Fill in Server URL and select authentication method
+4. Once connected, tools provided by MCP will be automatically integrated into conversations
 
 ### Skill Folder Structure
 
@@ -138,8 +186,10 @@ When user needs to perform a task, follow these steps:
 - **Framework**: [WXT](https://wxt.dev/) - Modern browser extension development framework
 - **Frontend**: Vue 3 + TypeScript
 - **AI Integration**: OpenAI SDK (compatible with any OpenAI API)
+- **MCP Support**: @modelcontextprotocol/sdk - Model Context Protocol client
 - **Content Extraction**: @mozilla/readability + turndown
 - **Storage**: IndexedDB (idb) + WXT Storage
+- **Authentication**: OAuth 2.1 support (for MCP Server auth)
 
 ## 🔧 Built-in Tools
 
@@ -151,6 +201,7 @@ Tactus provides the following built-in tools for AI:
 | `activate_skill` | Activate a specified Skill |
 | `execute_skill_script` | Execute script within a Skill |
 | `read_skill_file` | Read file content from a Skill |
+| **MCP Tools** | Dynamically fetched tools from connected MCP Servers |
 
 ## 📝 Development
 
@@ -165,11 +216,18 @@ tactus/
 │   └── options/           # Settings page
 ├── components/            # Vue components
 ├── utils/
-│   ├── api.ts             # API calls
+│   ├── api.ts             # API calls & tool execution
 │   ├── db.ts              # IndexedDB operations
+│   ├── storage.ts         # Settings & storage management
+│   ├── i18n.ts            # Internationalization
+│   ├── mcp.ts             # MCP Client management
+│   ├── mcpOAuth.ts        # MCP OAuth 2.1 auth
+│   ├── mcpStorage.ts      # MCP config storage
 │   ├── skills.ts          # Skills core logic
 │   ├── skillsExecutor.ts  # Script executor
-│   └── skillsImporter.ts  # Skills import
+│   ├── skillsImporter.ts  # Skills import
+│   ├── tools.ts           # Tool definitions
+│   └── pageExtractor.ts   # Page content extraction
 └── public/                # Static assets
 ```
 

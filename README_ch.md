@@ -8,7 +8,7 @@ Tactus 是一款创新的浏览器扩展，将 [Agent Skills](https://agentskill
 
 触发 skills 可实现特定场景的提示词注入，常用工作流可封装在脚本中执行，代替 AI Agent 重复的自动化操作，既快速又省token。
 
-<!-- 演示动图占位符 -->
+<!-- 演示动图 -->
 ![Tactus 演示](resources/trust-skill.png)
 ![Tactus 演示](resources/show-result.png)
 
@@ -19,33 +19,73 @@ Tactus 是一款创新的浏览器扩展，将 [Agent Skills](https://agentskill
 Tactus 是首个在浏览器扩展中实现 Agent Skills 规范的产品：
 
 - **技能导入** - 支持导入符合规范的 Skill 文件夹，包含指令、脚本和资源文件
-- **脚本执行** - 在页面中安全执行 JavaScript 脚本   
+- **脚本执行** - 在页面中安全执行 JavaScript 脚本
 - **信任机制** - 首次执行脚本需用户确认，可选择永久信任
 
-<!-- Skills 导入演示占位符 -->
+<!-- Skills 导入演示 -->
 ![Skills 导入演示](resources/add-skill.png)
 
 ### 🤖 智能对话
 
-- **OpenAI 兼容 API** - 支持 OpenAI 兼容的 API 服务商
+- **OpenAI 兼容 API** - 支持任何 OpenAI 兼容的 API 服务商（包括国内各大模型服务）
 - **多模型切换** - 配置多个服务商，随时切换模型
 - **流式响应** - 实时显示 AI 回复，支持思维链展示
-- **ReAct 范式** - 内置工具调用循环，AI 可自主决策使用工具
+- **ReAct 范式** - 内置完整工具调用循环，AI 自主决策何时使用工具
+- **终止生成** - 随时中断正在进行的 AI 生成或工具调用
+
+### 🖼️ 图像视觉支持
+
+- **视觉模型配置** - 按模型独立配置是否启用视觉能力
+- **粘贴图片** - 在对话输入框中直接粘贴图片发送给 AI
+- **多模态对话** - 支持图文混合提问，让 AI 理解页面截图、图表等视觉内容
+
+<!-- 图像视觉演示 -->
+![图像视觉演示](resources/identify-image.png)
 
 ### 📄 页面理解
 
 - **智能提取** - 使用 Readability + Turndown 提取页面核心内容并转换为 Markdown
-- **选中引用** - 选中页面文字后一键引用提问带上
-- **上下文感知** - AI自行判断是否调用网页提取工具，如果 skill 脚本有提供则不会
+- **选中引用** - 选中页面文字或侧边栏文字后一键引用提问
+- **上下文感知** - AI 自行判断是否调用网页提取工具，如果 skill 脚本有提供则不会重复提取
+- **原始提取模式** - 支持配置特定网站跳过 Readability 算法，直接提取页面原始内容
 
-<!-- 页面交互演示占位符 -->
+<!-- 页面交互演示 -->
 ![页面交互演示](resources/page-interaction.png)
+
+### 🔌 HTTP MCP 支持
+
+通过 [Model Context Protocol](https://modelcontextprotocol.io/) 连接外部工具服务器，扩展 AI 的能力边界：
+
+- **MCP Server 连接** - 添加并管理多个 HTTP MCP Server
+- **动态工具发现** - 自动从 MCP Server 获取可用工具并集成到对话中
+- **多种认证方式**：
+  - 无认证（公开服务）
+  - Bearer Token 认证
+  - OAuth 2.1 认证（含自动刷新）
+
+<!-- Notion MCP 演示视频占位符 -->
+
+
+### 🎨 主题与个性化
+
+- **主题切换** - 支持浅色、深色、跟随系统三种主题模式
+- **悬浮球开关** - 可自由开启/关闭页面右侧悬浮球
+- **划词引用开关** - 可自由开启/关闭划词引用功能
+- **国际化** - 支持中英文界面切换
 
 ### 💾 本地存储
 
 - **会话管理** - 对话历史本地存储，支持分页加载
+- **消息编辑** - 支持编辑已发送的用户消息并重新生成回复
+- **消息复制** - AI 回复支持一键复制
 - **IndexedDB** - Skills 和文件存储在本地数据库
 - **隐私优先** - 所有数据保存在本地，不上传任何服务器
+
+### ⚙️ 高级配置
+
+- **网页内容字数限制** - 可配置提取页面内容的最大字数，控制 token 消耗
+- **工具调用次数限制** - 可配置 Agent 单次对话中工具调用的最大次数，防止无限循环
+- **Base URL 智能处理** - 自动补全 `/v1/chat/completions` 路径，简化 API 配置
 
 ## 🚀 快速开始
 
@@ -92,8 +132,9 @@ npm run build
 2. 点击设置按钮进入配置页面
 3. 添加 API 服务商（填写名称、API 地址、密钥）
 4. 获取模型列表并选择模型
+5. 如需视觉能力，在模型设置中启用视觉配置
 
-<!-- 配置演示占位符 -->
+<!-- 配置演示 -->
 ![配置演示](resources/set-llm.png)
 
 ### 导入 Skill
@@ -102,6 +143,13 @@ npm run build
 2. 点击"导入 Skill"按钮
 3. 选择包含 `SKILL.md` 的文件夹
 4. 确认导入后即可在对话中使用
+
+### 配置 MCP Server
+
+1. 在设置页面找到 MCP 管理区域
+2. 点击添加 MCP Server
+3. 填写 Server URL 并选择认证方式
+4. 连接成功后，MCP 提供的工具将自动集成到对话中
 
 ### Skill 文件夹结构
 
@@ -138,8 +186,10 @@ description: 这是一个示例技能
 - **框架**: [WXT](https://wxt.dev/) - 现代浏览器扩展开发框架
 - **前端**: Vue 3 + TypeScript
 - **AI 集成**: OpenAI SDK（兼容任意 OpenAI API）
+- **MCP 支持**: @modelcontextprotocol/sdk - Model Context Protocol 客户端
 - **内容提取**: @mozilla/readability + turndown
 - **存储**: IndexedDB (idb) + WXT Storage
+- **认证**: OAuth 2.1 支持（用于 MCP Server 认证）
 
 ## 🔧 内置工具
 
@@ -151,6 +201,7 @@ Tactus 为 AI 提供以下内置工具：
 | `activate_skill` | 激活指定的 Skill |
 | `execute_skill_script` | 执行 Skill 中的脚本 |
 | `read_skill_file` | 读取 Skill 中的文件内容 |
+| **MCP 工具** | 从已连接的 MCP Server 动态获取的工具 |
 
 ## 📝 开发
 
@@ -165,11 +216,18 @@ tactus/
 │   └── options/           # 设置页面
 ├── components/            # Vue 组件
 ├── utils/
-│   ├── api.ts             # API 调用
+│   ├── api.ts             # API 调用与工具执行
 │   ├── db.ts              # IndexedDB 操作
+│   ├── storage.ts         # 设置与存储管理
+│   ├── i18n.ts            # 国际化
+│   ├── mcp.ts             # MCP Client 管理
+│   ├── mcpOAuth.ts        # MCP OAuth 2.1 认证
+│   ├── mcpStorage.ts      # MCP 配置存储
 │   ├── skills.ts          # Skills 核心逻辑
 │   ├── skillsExecutor.ts  # 脚本执行器
-│   └── skillsImporter.ts  # Skills 导入
+│   ├── skillsImporter.ts  # Skills 导入
+│   ├── tools.ts           # 工具定义
+│   └── pageExtractor.ts   # 页面内容提取
 └── public/                # 静态资源
 ```
 

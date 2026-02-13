@@ -63,8 +63,8 @@ Tactus 是首个在浏览器扩展中实现 Agent Skills 规范的产品：
   - Bearer Token 认证
   - OAuth 2.1 认证（含自动刷新）
 
-<!-- Notion MCP 演示视频占位符 -->
-
+<!-- Notion MCP 演示视频 -->
+https://github.com/user-attachments/assets/c7737e7e-dd2e-4888-a030-db40b9731f1d
 
 ### 🎨 主题与个性化
 
@@ -253,3 +253,4 @@ Apache-2.0 License
 ---
 
 **Tactus** - 赋予 AI 触觉，代你行走网络 🚀
+

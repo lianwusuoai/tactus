@@ -29,6 +29,7 @@ export interface Translations {
   providerNamePlaceholder: string;
   baseUrl: string;
   baseUrlPlaceholder: string;
+  baseUrlHint: string;
   apiKey: string;
   apiKeyPlaceholder: string;
   modelList: string;
@@ -215,6 +216,7 @@ const en: Translations = {
   providerNamePlaceholder: 'e.g. OpenAI, DeepSeek',
   baseUrl: 'Base URL',
   baseUrlPlaceholder: 'https://api.openai.com',
+  baseUrlHint: 'If the URL ends with "/", it will be used as-is. Otherwise, "/v1" is appended automatically.',
   apiKey: 'API Key',
   apiKeyPlaceholder: 'sk-...',
   modelList: 'Models',
@@ -401,6 +403,7 @@ const zhCN: Translations = {
   providerNamePlaceholder: '例如：OpenAI, DeepSeek',
   baseUrl: 'Base URL',
   baseUrlPlaceholder: 'https://api.openai.com',
+  baseUrlHint: '若以 / 结尾则按原样使用；若不以 / 结尾将自动补全 /v1。',
   apiKey: 'API Key',
   apiKeyPlaceholder: 'sk-...',
   modelList: '模型列表',

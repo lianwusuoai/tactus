@@ -637,6 +637,7 @@ async function handleMcpToggle(id: string, enabled: boolean) {
                 <div class="form-group">
                   <label>{{ i18n('baseUrl') }}</label>
                   <input v-model="formBaseUrl" :placeholder="i18n('baseUrlPlaceholder')" />
+                  <p class="form-hint">{{ i18n('baseUrlHint') }}</p>
                 </div>
                 <div class="form-group">
                   <label>{{ i18n('apiKey') }}</label>

@@ -207,21 +207,22 @@ export function setLastApiMessages(messages: ApiMessage[]) {
   lastApiMessages = messages;
 }
 
-// 规范化 Base URL，移除末尾的斜杠和 /v1 后缀
-function normalizeBaseUrl(baseUrl: string): string {
-  let url = baseUrl.trim().replace(/\/+$/, ''); // 移除末尾斜杠
-  // 移除末尾的 /v1（不区分大小写）
-  if (url.toLowerCase().endsWith('/v1')) {
-    url = url.slice(0, -3);
-  }
-  return url;
+// 解析 Base URL：
+// - 以 "/" 结尾：按原样使用（不自动拼接 /v1）
+// - 不以 "/" 结尾：自动补充 /v1（若已是 /v1 则保持不变）
+function resolveBaseUrl(baseUrl: string): string {
+  const url = baseUrl.trim();
+  if (!url) return url;
+  if (url.endsWith('/')) return url;
+  if (/\/v1$/i.test(url)) return url;
+  return `${url}/v1`;
 }
 
 // 创建 OpenAI 客户端
 function createClient(provider: AIProvider): OpenAI {
   return new OpenAI({
     apiKey: provider.apiKey,
-    baseURL: `${normalizeBaseUrl(provider.baseUrl)}/v1`,
+    baseURL: resolveBaseUrl(provider.baseUrl),
     dangerouslyAllowBrowser: true, // 浏览器扩展环境需要
     maxRetries: 0, // 禁用 SDK 内置重试，由代码层统一控制
   });
@@ -231,7 +232,7 @@ export async function fetchModels(baseUrl: string, apiKey: string): Promise<Mode
   try {
     const client = new OpenAI({
       apiKey,
-      baseURL: `${normalizeBaseUrl(baseUrl)}/v1`,
+      baseURL: resolveBaseUrl(baseUrl),
       dangerouslyAllowBrowser: true,
     });
     

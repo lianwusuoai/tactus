@@ -659,6 +659,32 @@ async function handleInputBoxDrop(event: DragEvent): Promise<void> {
   await addPendingImageFiles(event.dataTransfer.files);
 }
 
+async function handleInputPaste(event: ClipboardEvent): Promise<void> {
+  if (!activeModelSupportsVision.value) return;
+  if (!event.clipboardData) return;
+
+  const imageFiles: File[] = [];
+  for (const item of Array.from(event.clipboardData.items)) {
+    if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
+    const file = item.getAsFile();
+    if (file) {
+      imageFiles.push(file);
+    }
+  }
+
+  if (imageFiles.length === 0 && event.clipboardData.files.length > 0) {
+    for (const file of Array.from(event.clipboardData.files)) {
+      if (isSupportedImageFile(file)) {
+        imageFiles.push(file);
+      }
+    }
+  }
+
+  if (imageFiles.length === 0) return;
+  event.preventDefault();
+  await addPendingImageFiles(imageFiles);
+}
+
 function hideSelectionQuotePopup(): void {
   selectionQuotePopup.value.visible = false;
 }
@@ -1940,6 +1966,7 @@ function rejectScript() {
           :placeholder="i18n('inputPlaceholder')"
           rows="1"
           @keydown="handleKeydown"
+          @paste="handleInputPaste"
         ></textarea>
         <div class="input-actions">
           <button v-if="activeModelSupportsVision" class="upload-btn" @click="openImagePicker" :title="i18n('uploadImage')">

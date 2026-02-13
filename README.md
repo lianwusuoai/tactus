@@ -64,7 +64,7 @@ Connect to external tool servers via [Model Context Protocol](https://modelconte
   - OAuth 2.1 authentication (with auto-refresh)
 
 <!-- MCP Config Demo  -->
-
+https://github.com/user-attachments/assets/c7737e7e-dd2e-4888-a030-db40b9731f1d
 
 ### 🎨 Themes & Personalization
 
@@ -253,3 +253,4 @@ Apache-2.0 License
 ---
 
 **Tactus** - granting AI the sense of touch to navigate the web 🚀
+

@@ -7,7 +7,7 @@ export default defineConfig({
     description: 'AI Assistant with OpenAI-compatible API support',
     version: '1.0.3',
     minimum_chrome_version: '120',
-    permissions: ['storage', 'unlimitedStorage', 'activeTab', 'sidePanel', 'scripting'],
+    permissions: ['storage', 'unlimitedStorage', 'activeTab', 'sidePanel', 'scripting', 'identity'],
     host_permissions: ['<all_urls>'],
     action: {
       default_title: 'Tactus',

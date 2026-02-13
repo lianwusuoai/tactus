@@ -5,12 +5,15 @@ import {
   getFilteredTools, 
   generateContextPrompt, 
   getToolStatusText, 
+  isMcpTool,
+  parseMcpToolName,
   type FunctionTool,
   type ToolCall, 
   type ToolResult, 
   type SkillInfo,
   type Language,
 } from './tools';
+import type { McpTool } from './mcp';
 
 export interface ModelInfo {
   id: string;
@@ -330,7 +333,7 @@ function convertToOpenAIMessages(messages: ApiMessage[]): ChatCompletionMessageP
 export async function* streamChat(
   provider: AIProvider,
   messages: ChatMessage[],
-  context?: { sharePageContent?: boolean; skills?: SkillInfo[]; pageInfo?: { domain: string; title: string; url?: string }; language?: Language },
+  context?: { sharePageContent?: boolean; skills?: SkillInfo[]; mcpTools?: McpTool[]; pageInfo?: { domain: string; title: string; url?: string }; language?: Language },
   config?: FunctionCallingConfig,
   retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG,
   previousApiMessages?: ApiMessage[]  // 新增：传入之前保存的完整 API 上下文

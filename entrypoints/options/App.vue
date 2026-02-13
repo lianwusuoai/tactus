@@ -32,8 +32,19 @@ import {
 import { fetchModels } from '../../utils/api';
 import { importSkillFromFolder } from '../../utils/skillsImporter';
 import { t, type Translations } from '../../utils/i18n';
+import {
+  getAllMcpServers,
+  saveMcpServer,
+  deleteMcpServer,
+  toggleMcpServer,
+  generateMcpServerId,
+  watchMcpServers,
+  type McpServerConfig,
+  type McpAuthType,
+} from '../../utils/mcpStorage';
+import { mcpManager } from '../../utils/mcp';
 
-const activeNav = ref<'models' | 'skills' | 'settings'>('models');
+const activeNav = ref<'models' | 'skills' | 'mcp' | 'settings'>('models');
 
 // 语言设置
 const currentLanguage = ref<Language>('en');
@@ -88,6 +99,23 @@ const skillTrustedScripts = computed(() => {
   return trustedScripts.value.filter(t => t.skillId === selectedSkill.value!.id);
 });
 
+// MCP Server 管理
+const mcpServers = ref<McpServerConfig[]>([]);
+const selectedMcpServerId = ref<string | null>(null);
+const mcpFormName = ref('');
+const mcpFormUrl = ref('');
+const mcpFormDescription = ref('');
+const mcpFormAuthType = ref<McpAuthType>('none');
+const mcpFormAuthToken = ref('');
+const mcpFormEnabled = ref(true);
+const isMcpSaving = ref(false);
+const isMcpTesting = ref(false);
+const mcpTestResult = ref<{ success: boolean; message: string; toolCount?: number } | null>(null);
+const unwatchMcpServers = ref<(() => void) | null>(null);
+
+const isNewMcpServer = computed(() => selectedMcpServerId.value === 'new');
+const selectedMcpServer = computed(() => mcpServers.value.find(s => s.id === selectedMcpServerId.value) || null);
+
 onMounted(async () => {
   providers.value = await getAllProviders();
   const active = await getActiveProvider();
@@ -117,6 +145,14 @@ onMounted(async () => {
   unwatchThemeMode.value = watchThemeMode((newMode) => {
     applyTheme(newMode);
   });
+  
+  // 加载 MCP Server 配置
+  mcpServers.value = await getAllMcpServers();
+  
+  // 监听 MCP Server 配置变化
+  unwatchMcpServers.value = watchMcpServers((servers) => {
+    mcpServers.value = servers;
+  });
 });
 
 // 系统主题变化处理
@@ -129,6 +165,7 @@ async function handleSystemThemeChange() {
 
 onUnmounted(() => {
   unwatchThemeMode.value?.();
+  unwatchMcpServers.value?.();
   systemThemeMediaQuery.value?.removeEventListener('change', handleSystemThemeChange);
 });
 
@@ -336,6 +373,145 @@ async function handleRemoveRawExtractSite(site: string) {
   await removeRawExtractSite(site);
   rawExtractSites.value = await getRawExtractSites();
 }
+
+// ========== MCP Server 管理函数 ==========
+
+function selectMcpServer(id: string) {
+  selectedMcpServerId.value = id;
+  const server = mcpServers.value.find(s => s.id === id);
+  if (server) {
+    mcpFormName.value = server.name;
+    mcpFormUrl.value = server.url;
+    mcpFormDescription.value = server.description || '';
+    mcpFormAuthType.value = server.authType || 'none';
+    mcpFormAuthToken.value = server.authToken || '';
+    mcpFormEnabled.value = server.enabled;
+    mcpTestResult.value = null;
+  }
+}
+
+function addNewMcpServer() {
+  selectedMcpServerId.value = 'new';
+  mcpFormName.value = '';
+  mcpFormUrl.value = '';
+  mcpFormDescription.value = '';
+  mcpFormAuthType.value = 'none';
+  mcpFormAuthToken.value = '';
+  mcpFormEnabled.value = true;
+  mcpTestResult.value = null;
+}
+
+async function saveMcpServerConfig() {
+  if (!mcpFormName.value.trim() || !mcpFormUrl.value.trim()) {
+    alert(i18n('fillRequired'));
+    return;
+  }
+  
+  // 验证 URL 格式
+  try {
+    new URL(mcpFormUrl.value);
+  } catch {
+    alert(i18n('mcpInvalidUrl'));
+    return;
+  }
+  
+  isMcpSaving.value = true;
+  try {
+    const server: McpServerConfig = {
+      id: isNewMcpServer.value ? generateMcpServerId() : selectedMcpServerId.value!,
+      name: mcpFormName.value.trim(),
+      url: mcpFormUrl.value.trim(),
+      description: mcpFormDescription.value.trim() || undefined,
+      authType: mcpFormAuthType.value,
+      authToken: mcpFormAuthType.value === 'bearer' ? mcpFormAuthToken.value.trim() || undefined : undefined,
+      enabled: mcpFormEnabled.value,
+    };
+    await saveMcpServer(server);
+    mcpServers.value = await getAllMcpServers();
+    selectedMcpServerId.value = server.id;
+  } finally {
+    isMcpSaving.value = false;
+  }
+}
+
+async function removeMcpServer() {
+  if (!selectedMcpServerId.value || isNewMcpServer.value) return;
+  if (confirm(i18n('mcpConfirmDelete'))) {
+    // 先断开连接
+    await mcpManager.disconnect(selectedMcpServerId.value);
+    await deleteMcpServer(selectedMcpServerId.value);
+    mcpServers.value = await getAllMcpServers();
+    if (mcpServers.value.length > 0) {
+      selectMcpServer(mcpServers.value[0].id);
+    } else {
+      selectedMcpServerId.value = null;
+    }
+  }
+}
+
+async function testMcpConnection() {
+  if (!mcpFormUrl.value.trim()) {
+    alert(i18n('mcpEnterUrl'));
+    return;
+  }
+  
+  isMcpTesting.value = true;
+  mcpTestResult.value = null;
+  
+  // 对于 OAuth，使用固定 ID 以便复用 token
+  const testId = mcpFormAuthType.value === 'oauth' 
+    ? (isNewMcpServer.value ? 'oauth-test' : selectedMcpServerId.value!)
+    : 'test-' + Date.now();
+  
+  const testConfig: McpServerConfig = {
+    id: testId,
+    name: 'Test',
+    url: mcpFormUrl.value.trim(),
+    authType: mcpFormAuthType.value,
+    authToken: mcpFormAuthType.value === 'bearer' ? mcpFormAuthToken.value.trim() || undefined : undefined,
+    enabled: true,
+  };
+  
+  // OAuth 可能需要重试（第一次触发授权，第二次使用 token）
+  const maxRetries = mcpFormAuthType.value === 'oauth' ? 2 : 1;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[MCP Test] 尝试连接 (${attempt}/${maxRetries})`);
+      const tools = await mcpManager.connect(testConfig);
+      await mcpManager.disconnect(testConfig.id);
+      
+      mcpTestResult.value = {
+        success: true,
+        message: i18n('mcpTestSuccess'),
+        toolCount: tools.length,
+      };
+      break; // 成功，退出循环
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.log(`[MCP Test] 连接失败 (${attempt}/${maxRetries}):`, errorMessage);
+      
+      // 如果是最后一次尝试，或者不是 OAuth 相关错误，显示错误
+      if (attempt === maxRetries || !errorMessage.toLowerCase().includes('unauthorized')) {
+        mcpTestResult.value = {
+          success: false,
+          message: errorMessage,
+        };
+      }
+      // 否则继续重试
+    }
+  }
+  
+  isMcpTesting.value = false;
+}
+
+async function handleMcpToggle(id: string, enabled: boolean) {
+  await toggleMcpServer(id, enabled);
+  mcpServers.value = await getAllMcpServers();
+  if (selectedMcpServerId.value === id) {
+    mcpFormEnabled.value = enabled;
+  }
+}
 </script>
 
 <template>
@@ -354,6 +530,13 @@ async function handleRemoveRawExtractSite(site: string) {
             <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>
           </svg>
           <span>{{ i18n('navSkills') }}</span>
+        </div>
+        <div class="nav-item" :class="{ active: activeNav === 'mcp' }" @click="activeNav = 'mcp'">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+            <path d="M8 21h8M12 17v4"/>
+          </svg>
+          <span>{{ i18n('navMcp') }}</span>
         </div>
         <div class="nav-item" :class="{ active: activeNav === 'settings' }" @click="activeNav = 'settings'">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -539,6 +722,154 @@ async function handleRemoveRawExtractSite(site: string) {
               </div>
               <p>{{ i18n('selectSkillOrImport') }}</p>
               <button class="btn btn-primary" @click="openImportModal">{{ i18n('importSkill') }}</button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- MCP Server 配置页面 -->
+      <template v-if="activeNav === 'mcp'">
+        <div class="content-header">
+          <h2>{{ i18n('mcpConfig') }}</h2>
+          <p class="content-desc">{{ i18n('mcpConfigDesc') }}</p>
+        </div>
+        <div class="content-body">
+          <aside class="provider-sidebar">
+            <div class="sidebar-header">
+              <span class="section-label">{{ i18n('mcpServerList') }}</span>
+              <button class="add-btn" @click="addNewMcpServer" :title="i18n('mcpAddServer')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+            </div>
+            <div class="provider-list">
+              <div v-for="server in mcpServers" :key="server.id" class="provider-item" :class="{ selected: server.id === selectedMcpServerId }" @click="selectMcpServer(server.id)">
+                <div class="provider-info">
+                  <div class="provider-name">{{ server.name }}</div>
+                  <div class="provider-model mcp-url">{{ server.url }}</div>
+                </div>
+                <span v-if="server.enabled" class="mcp-status-badge enabled">{{ i18n('mcpEnabled') }}</span>
+                <span v-else class="mcp-status-badge disabled">{{ i18n('mcpDisabled') }}</span>
+              </div>
+              <div v-if="mcpServers.length === 0" class="empty-list">{{ i18n('mcpNoServers') }}</div>
+            </div>
+          </aside>
+          <div class="provider-form-area">
+            <div v-if="selectedMcpServerId" class="form-container">
+              <div class="form-header">
+                <h3>{{ isNewMcpServer ? i18n('mcpAddServer') : i18n('mcpEditServer') }}</h3>
+                <div class="form-actions" v-if="!isNewMcpServer">
+                  <button class="btn btn-danger" @click="removeMcpServer">{{ i18n('delete') }}</button>
+                </div>
+              </div>
+              <div class="form-body">
+                <div class="form-group">
+                  <label>{{ i18n('mcpServerName') }}</label>
+                  <input v-model="mcpFormName" :placeholder="i18n('mcpServerNamePlaceholder')" />
+                </div>
+                <div class="form-group">
+                  <label>{{ i18n('mcpServerUrl') }}</label>
+                  <input v-model="mcpFormUrl" :placeholder="i18n('mcpServerUrlPlaceholder')" />
+                  <p class="form-hint">{{ i18n('mcpServerUrlHint') }}</p>
+                </div>
+                <div class="form-group">
+                  <label>{{ i18n('mcpServerDescription') }}</label>
+                  <input v-model="mcpFormDescription" :placeholder="i18n('mcpServerDescriptionPlaceholder')" />
+                </div>
+                <div class="form-group">
+                  <label>{{ i18n('mcpAuthType') }}</label>
+                  <div class="auth-type-selector">
+                    <button 
+                      class="auth-type-btn" 
+                      :class="{ active: mcpFormAuthType === 'none' }"
+                      @click="mcpFormAuthType = 'none'"
+                    >
+                      {{ i18n('mcpAuthNone') }}
+                    </button>
+                    <button 
+                      class="auth-type-btn" 
+                      :class="{ active: mcpFormAuthType === 'bearer' }"
+                      @click="mcpFormAuthType = 'bearer'"
+                    >
+                      {{ i18n('mcpAuthBearer') }}
+                    </button>
+                    <button 
+                      class="auth-type-btn" 
+                      :class="{ active: mcpFormAuthType === 'oauth' }"
+                      @click="mcpFormAuthType = 'oauth'"
+                    >
+                      {{ i18n('mcpAuthOAuth') }}
+                    </button>
+                  </div>
+                </div>
+                <div class="form-group" v-if="mcpFormAuthType === 'bearer'">
+                  <label>{{ i18n('mcpAuthToken') }}</label>
+                  <input v-model="mcpFormAuthToken" type="password" :placeholder="i18n('mcpAuthTokenPlaceholder')" />
+                  <p class="form-hint">{{ i18n('mcpAuthTokenHint') }}</p>
+                </div>
+                <div class="form-group" v-if="mcpFormAuthType === 'oauth'">
+                  <p class="form-hint oauth-hint">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <path d="M12 16v-4M12 8h.01"/>
+                    </svg>
+                    {{ i18n('mcpOAuthHint') }}
+                  </p>
+                </div>
+                <div class="form-group" v-if="!isNewMcpServer">
+                  <label>{{ i18n('mcpServerStatus') }}</label>
+                  <button 
+                    class="toggle-btn"
+                    :class="{ active: mcpFormEnabled }"
+                    @click="handleMcpToggle(selectedMcpServerId!, !mcpFormEnabled)"
+                  >
+                    <span class="toggle-track">
+                      <span class="toggle-thumb"></span>
+                    </span>
+                    <span class="toggle-label">{{ mcpFormEnabled ? i18n('mcpEnabled') : i18n('mcpDisabled') }}</span>
+                  </button>
+                </div>
+                
+                <!-- 测试连接 -->
+                <div class="form-group">
+                  <div class="label-row">
+                    <label>{{ i18n('mcpTestConnection') }}</label>
+                    <button class="fetch-btn" @click="testMcpConnection" :disabled="isMcpTesting || !mcpFormUrl.trim()">
+                      {{ isMcpTesting ? i18n('mcpTesting') : i18n('mcpTest') }}
+                    </button>
+                  </div>
+                  <div v-if="mcpTestResult" class="mcp-test-result" :class="{ success: mcpTestResult.success, error: !mcpTestResult.success }">
+                    <svg v-if="mcpTestResult.success" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                      <path d="M22 4L12 14.01l-3-3"/>
+                    </svg>
+                    <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="15" y1="9" x2="9" y2="15"/>
+                      <line x1="9" y1="9" x2="15" y2="15"/>
+                    </svg>
+                    <span>{{ mcpTestResult.message }}</span>
+                    <span v-if="mcpTestResult.toolCount !== undefined" class="tool-count">
+                      ({{ i18n('mcpToolCount', { count: mcpTestResult.toolCount }) }})
+                    </span>
+                  </div>
+                </div>
+                
+                <div class="form-footer">
+                  <button class="btn btn-primary" @click="saveMcpServerConfig" :disabled="isMcpSaving">
+                    {{ isMcpSaving ? i18n('saving') : i18n('saveConfig') }}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div v-else class="empty-form">
+              <div class="empty-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                  <path d="M8 21h8M12 17v4"/>
+                </svg>
+              </div>
+              <p>{{ i18n('mcpSelectOrAdd') }}</p>
+              <button class="btn btn-primary" @click="addNewMcpServer">{{ i18n('mcpAddServer') }}</button>
             </div>
           </div>
         </div>
